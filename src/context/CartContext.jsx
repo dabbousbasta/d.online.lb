@@ -1,10 +1,19 @@
 import { createContext, useContext, useEffect, useMemo, useState } from 'react'
 
+const CartContext = createContext(null)
 const CART_STORAGE_KEY = 'dabous-online-store-cart'
 
-const CartContext = createContext(null)
+function normalizeQuantity(value) {
+  const quantity = Number(value)
 
-function readSavedCart() {
+  if (!Number.isFinite(quantity)) {
+    return 1
+  }
+
+  return Math.max(1, Math.floor(quantity))
+}
+
+function getInitialCart() {
   try {
     const savedCart = window.localStorage.getItem(CART_STORAGE_KEY)
 
@@ -18,37 +27,30 @@ function readSavedCart() {
       return []
     }
 
-    return parsedCart.filter(
-      (item) =>
-        item &&
-        typeof item.id === 'string' &&
-        typeof item.name === 'string' &&
-        Number.isFinite(Number(item.price)) &&
-        Number.isInteger(Number(item.quantity)) &&
-        Number(item.quantity) > 0,
-    )
+    return parsedCart
+      .filter((item) => item && item.id)
+      .map((item) => ({
+        ...item,
+        quantity: normalizeQuantity(item.quantity),
+      }))
   } catch {
     return []
   }
 }
 
 export function CartProvider({ children }) {
-  const [items, setItems] = useState(readSavedCart)
+  const [items, setItems] = useState(getInitialCart)
 
   useEffect(() => {
     window.localStorage.setItem(CART_STORAGE_KEY, JSON.stringify(items))
   }, [items])
 
-  function addItem(product) {
-    if (!product?.id || !product?.name) {
+  function addItem(product, quantityToAdd = 1) {
+    if (!product?.id) {
       return
     }
 
-    const price = Number(product.display_price)
-
-    if (!Number.isFinite(price) || price < 0) {
-      return
-    }
+    const safeQuantityToAdd = normalizeQuantity(quantityToAdd)
 
     setItems((currentItems) => {
       const existingItem = currentItems.find((item) => item.id === product.id)
@@ -56,7 +58,12 @@ export function CartProvider({ children }) {
       if (existingItem) {
         return currentItems.map((item) =>
           item.id === product.id
-            ? { ...item, quantity: item.quantity + 1 }
+            ? {
+                ...item,
+                quantity: normalizeQuantity(
+                  item.quantity + safeQuantityToAdd,
+                ),
+              }
             : item,
         )
       }
@@ -65,39 +72,31 @@ export function CartProvider({ children }) {
         ...currentItems,
         {
           id: product.id,
-          slug: product.slug ?? '',
           name: product.name,
-          price,
-          quantity: 1,
+          slug: product.slug,
+          price: Number(product.display_price ?? product.price ?? 0),
           imagePath: product.cover_image_path || product.image_path || '',
+          quantity: safeQuantityToAdd,
         },
       ]
     })
   }
 
-  function updateQuantity(itemId, quantity) {
-    const normalizedQuantity = Number(quantity)
+  function updateQuantity(productId, nextQuantity) {
+    const safeQuantity = normalizeQuantity(nextQuantity)
 
-    if (!Number.isInteger(normalizedQuantity)) {
-      return
-    }
-
-    setItems((currentItems) => {
-      if (normalizedQuantity <= 0) {
-        return currentItems.filter((item) => item.id !== itemId)
-      }
-
-      return currentItems.map((item) =>
-        item.id === itemId
-          ? { ...item, quantity: normalizedQuantity }
+    setItems((currentItems) =>
+      currentItems.map((item) =>
+        item.id === productId
+          ? { ...item, quantity: safeQuantity }
           : item,
-      )
-    })
+      ),
+    )
   }
 
-  function removeItem(itemId) {
+  function removeItem(productId) {
     setItems((currentItems) =>
-      currentItems.filter((item) => item.id !== itemId),
+      currentItems.filter((item) => item.id !== productId),
     )
   }
 
@@ -105,38 +104,48 @@ export function CartProvider({ children }) {
     setItems([])
   }
 
-  const totalItems = items.reduce(
-    (total, item) => total + item.quantity,
-    0,
+  const totalItems = useMemo(
+    () =>
+      items.reduce(
+        (total, item) => total + normalizeQuantity(item.quantity),
+        0,
+      ),
+    [items],
   )
 
-  const totalPrice = items.reduce(
-    (total, item) => total + item.price * item.quantity,
-    0,
+  const totalPrice = useMemo(
+    () =>
+      items.reduce(
+        (total, item) =>
+          total + Number(item.price ?? 0) * normalizeQuantity(item.quantity),
+        0,
+      ),
+    [items],
   )
 
-  const value = useMemo(
-    () => ({
-      items,
-      totalItems,
-      totalPrice,
-      addItem,
-      updateQuantity,
-      removeItem,
-      clearCart,
-    }),
-    [items, totalItems, totalPrice],
-  )
+  const value = {
+    items,
+    totalItems,
+    totalPrice,
+    addItem,
+    updateQuantity,
+    removeItem,
+    clearCart,
+  }
 
-  return <CartContext.Provider value={value}>{children}</CartContext.Provider>
+  return (
+    <CartContext.Provider value={value}>
+      {children}
+    </CartContext.Provider>
+  )
 }
 
 export function useCart() {
-  const cart = useContext(CartContext)
+  const context = useContext(CartContext)
 
-  if (!cart) {
-    throw new Error('useCart يجب أن يُستخدم داخل CartProvider')
+  if (!context) {
+    throw new Error('useCart must be used inside CartProvider.')
   }
 
-  return cart
+  return context
 }

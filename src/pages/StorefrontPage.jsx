@@ -76,6 +76,16 @@ function ProductImage({ imageUrl, productName }) {
   )
 }
 
+function getSafeQuantity(value) {
+  const quantity = Number(value)
+
+  if (!Number.isFinite(quantity)) {
+    return 1
+  }
+
+  return Math.max(1, Math.floor(quantity))
+}
+
 function StorefrontPage() {
   const navigate = useNavigate()
   const { addItem, totalItems } = useCart()
@@ -87,6 +97,7 @@ function StorefrontPage() {
   const [searchQuery, setSearchQuery] = useState('')
   const [selectedCategory, setSelectedCategory] = useState('all')
   const [cartMessage, setCartMessage] = useState('')
+  const [quantities, setQuantities] = useState({})
 
   useEffect(() => {
     async function loadStorefront() {
@@ -148,47 +159,54 @@ function StorefrontPage() {
   }, [products])
 
   const filteredProducts = useMemo(() => {
-  const normalizeSearchText = (value) =>
-    String(value ?? '')
-      .toLowerCase()
-      .trim()
-      .replace(/[أإآ]/g, 'ا')
-      .replace(/ة/g, 'ه')
-      .replace(/ى/g, 'ي')
-      .replace(/ـ/g, ' ')
-      .replace(/[^\p{L}\p{N}]+/gu, ' ')
-      .replace(/\s+/g, ' ')
-      .trim()
+    const normalizeSearchText = (value) =>
+      String(value ?? '')
+        .toLowerCase()
+        .trim()
+        .replace(/[أإآ]/g, 'ا')
+        .replace(/ة/g, 'ه')
+        .replace(/ى/g, 'ي')
+        .replace(/ـ/g, ' ')
+        .replace(/[^\p{L}\p{N}]+/gu, ' ')
+        .replace(/\s+/g, ' ')
+        .trim()
 
-  const searchWords = normalizeSearchText(searchQuery)
-    .split(' ')
-    .filter(Boolean)
+    const searchWords = normalizeSearchText(searchQuery)
+      .split(' ')
+      .filter(Boolean)
 
-  return products.filter((product) => {
-    const productCategory = String(product.category_name ?? '').trim()
+    return products.filter((product) => {
+      const productCategory = String(product.category_name ?? '').trim()
 
-    const matchesCategory =
-      selectedCategory === 'all' || productCategory === selectedCategory
+      const matchesCategory =
+        selectedCategory === 'all' || productCategory === selectedCategory
 
-    const searchableText = normalizeSearchText(
-      [
-        product.name,
-        product.short_description,
-        product.description,
-        product.category_name,
-        product.slug,
-      ]
-        .filter(Boolean)
-        .join(' '),
-    )
+      const searchableText = normalizeSearchText(
+        [
+          product.name,
+          product.short_description,
+          product.description,
+          product.category_name,
+          product.slug,
+        ]
+          .filter(Boolean)
+          .join(' '),
+      )
 
-    const matchesSearch =
-      searchWords.length === 0 ||
-      searchWords.every((word) => searchableText.includes(word))
+      const matchesSearch =
+        searchWords.length === 0 ||
+        searchWords.every((word) => searchableText.includes(word))
 
-    return matchesCategory && matchesSearch
-  })
-}, [products, searchQuery, selectedCategory])
+      return matchesCategory && matchesSearch
+    })
+  }, [products, searchQuery, selectedCategory])
+
+  function handleQuantityChange(productId, value) {
+    setQuantities((currentQuantities) => ({
+      ...currentQuantities,
+      [productId]: value,
+    }))
+  }
 
   function handleAddToCart(event, product) {
     event.stopPropagation()
@@ -197,8 +215,18 @@ function StorefrontPage() {
       return
     }
 
-    addItem(product)
-    setCartMessage(`تمت إضافة "${product.name}" إلى السلة.`)
+    const quantityToAdd = getSafeQuantity(quantities[product.id] ?? 1)
+
+    addItem(product, quantityToAdd)
+
+    setCartMessage(
+      `تمت إضافة ${quantityToAdd} من "${product.name}" إلى السلة.`,
+    )
+
+    setQuantities((currentQuantities) => ({
+      ...currentQuantities,
+      [product.id]: 1,
+    }))
 
     window.setTimeout(() => {
       setCartMessage('')
@@ -349,6 +377,7 @@ function StorefrontPage() {
           <section className="products-list" aria-label="قائمة المنتجات">
             {filteredProducts.map((product) => {
               const isAvailable = product.stock_status !== 'out_of_stock'
+              const quantityValue = quantities[product.id] ?? 1
 
               return (
                 <article
@@ -416,7 +445,10 @@ function StorefrontPage() {
                     )}
                   </div>
 
-                  <div className="product-list-purchase">
+                  <div
+                    className="product-list-purchase"
+                    onClick={(event) => event.stopPropagation()}
+                  >
                     <div className="product-list-price">
                       <strong>{formatPrice(product.display_price)}</strong>
 
@@ -426,6 +458,29 @@ function StorefrontPage() {
                         </span>
                       ) : null}
                     </div>
+
+                    <label className="quick-quantity-field">
+                      <span>الكمية</span>
+                      <input
+                        type="number"
+                        min="1"
+                        step="1"
+                        value={quantityValue}
+                        disabled={!isAvailable}
+                        inputMode="numeric"
+                        onChange={(event) =>
+                          handleQuantityChange(product.id, event.target.value)
+                        }
+                        onBlur={(event) =>
+                          handleQuantityChange(
+                            product.id,
+                            getSafeQuantity(event.target.value),
+                          )
+                        }
+                        onClick={(event) => event.stopPropagation()}
+                        aria-label={`كمية ${product.name}`}
+                      />
+                    </label>
 
                     <button
                       type="button"

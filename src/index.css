@@ -2591,3 +2591,73 @@ button {
     display: none;
   }
 }
+.quick-quantity-field,
+.product-quantity-field {
+  display: grid;
+  gap: 6px;
+  color: #334155;
+  font-size: 0.82rem;
+  font-weight: 700;
+}
+
+.quick-quantity-field input,
+.product-quantity-field input {
+  width: 100%;
+  min-width: 0;
+  border: 1px solid #cbd5e1;
+  border-radius: 10px;
+  padding: 10px 11px;
+  background: #ffffff;
+  color: #162534;
+  font: inherit;
+  font-weight: 700;
+  outline: none;
+  text-align: center;
+}
+
+.quick-quantity-field input:focus,
+.product-quantity-field input:focus {
+  border-color: #1c5d88;
+  box-shadow: 0 0 0 3px rgba(28, 93, 136, 0.14);
+}
+
+.quick-quantity-field input:disabled,
+.product-quantity-field input:disabled {
+  cursor: not-allowed;
+  background: #e2e8f0;
+  color: #94a3b8;
+}
+
+.product-details-actions {
+  align-items: end;
+}
+
+.product-quantity-field {
+  min-width: 105px;
+}
+
+@media (max-width: 760px) {
+  .quick-quantity-field {
+    grid-column: 1;
+    grid-row: 1 / span 2;
+  }
+
+  .quick-quantity-field input {
+    min-height: 44px;
+  }
+
+  .product-details-actions {
+    align-items: stretch;
+  }
+
+  .product-quantity-field {
+    width: 100%;
+  }
+}
+
+@media (max-width: 460px) {
+  .quick-quantity-field {
+    grid-column: auto;
+    grid-row: auto;
+  }
+}
