@@ -7,4 +7,7 @@ if (!supabaseUrl || !supabasePublishableKey) {
   throw new Error('Supabase environment variables are missing.')
 }
 
-export const supabase = createClient(supabaseUrl, supabasePublishableKey)
+export const supabase = createClient(
+  supabaseUrl,
+  supabasePublishableKey,
+)
