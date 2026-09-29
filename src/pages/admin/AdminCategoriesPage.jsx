@@ -33,18 +33,54 @@ function AdminCategoriesPage() {
     setErrorMessage('')
 
     const { data, error } = await supabase
-      .from('store_categories')
-      .select('id, name, slug, description, sort_order, is_active, created_at')
-      .order('sort_order', { ascending: true })
-      .order('name', { ascending: true })
+  .from('store_categories')
+  .select('id, name, slug, description, sort_order, is_active, created_at')
+  .order('sort_order', { ascending: true })
+  .order('name', { ascending: true })
 
+if (error) {
+  setErrorMessage(`تعذر تحميل التصنيفات: ${error.message}`)
+  setLoading(false)
+  return
+}
+
+const categoryIds = (data ?? []).map((category) => category.id)
+
+const { data: productSettings, error: productsError } = categoryIds.length
+  ? await supabase
+      .from('store_product_settings')
+      .select('category_id')
+      .in('category_id', categoryIds)
+  : { data: [], error: null }
+
+if (productsError) {
+  setErrorMessage(`تعذر تحميل أعداد المنتجات: ${productsError.message}`)
+  setLoading(false)
+  return
+}
+
+const productsCountByCategory = (productSettings ?? []).reduce(
+  (counts, product) => {
+    if (product.category_id) {
+      counts[product.category_id] = (counts[product.category_id] ?? 0) + 1
+    }
+
+    return counts
+  },
+  {},
+)
+
+const categoriesWithProductCounts = (data ?? []).map((category) => ({
+  ...category,
+  productsCount: productsCountByCategory[category.id] ?? 0,
+}))
     if (error) {
       setErrorMessage(`تعذر تحميل التصنيفات: ${error.message}`)
       setLoading(false)
       return
     }
 
-    setCategories(data ?? [])
+    setCategories(categoriesWithProductCounts)
     setLoading(false)
   }
 
@@ -116,17 +152,7 @@ function AdminCategoriesPage() {
 
     const { error } = await request
 
-    if (error) {
-      const duplicateSlug = error.code === '23505'
-      setErrorMessage(
-        duplicateSlug
-          ? 'هذا الرابط المختصر مستخدم لتصنيف آخر. غيّره ثم احفظ.'
-          : `تعذر حفظ التصنيف: ${error.message}`,
-      )
-      setSaving(false)
-      return
-    }
-
+    
     setMessage(editingId ? 'تم تعديل التصنيف بنجاح.' : 'تمت إضافة التصنيف بنجاح.')
     resetForm()
     setSaving(false)
@@ -134,6 +160,13 @@ function AdminCategoriesPage() {
   }
 
   async function handleDelete(category) {
+    if (category.productsCount > 0) {
+  setMessage('')
+  setErrorMessage(
+    `لا يمكن حذف تصنيف "${category.name}" لأنه مرتبط بـ ${category.productsCount} منتجاً. انقل المنتجات إلى تصنيف آخر أو اختر "بدون تصنيف" من صفحة المنتجات أولاً.`,
+  )
+  return
+}
     const confirmed = window.confirm(
       `هل تريد حذف التصنيف "${category.name}"؟\n\nلن يتم الحذف إذا كان مرتبطاً بمنتجات.`,
     )
@@ -277,7 +310,8 @@ function AdminCategoriesPage() {
                   <th>الترتيب</th>
                   <th>الاسم</th>
                   <th>الرابط</th>
-                  <th>الحالة</th>
+<th>المنتجات</th>
+<th>الحالة</th>
                   <th>الإجراءات</th>
                 </tr>
               </thead>
@@ -292,6 +326,11 @@ function AdminCategoriesPage() {
                       ) : null}
                     </td>
                     <td dir="ltr">{category.slug}</td>
+                    <td>
+  <span className="category-products-count">
+    {category.productsCount} منتج
+  </span>
+</td>
                     <td>
                       <span className={category.is_active ? 'status-pill active' : 'status-pill hidden'}>
                         {category.is_active ? 'ظاهر' : 'مخفي'}
