@@ -76,14 +76,30 @@ function ProductImage({ imageUrl, productName }) {
   )
 }
 
-function getSafeQuantity(value) {
+function getSafeQuantity(value, maximumQuantity = null) {
   const quantity = Number(value)
 
   if (!Number.isFinite(quantity)) {
     return 1
   }
 
-  return Math.max(1, Math.floor(quantity))
+  const safeQuantity = Math.max(1, Math.floor(quantity))
+
+  if (maximumQuantity === null) {
+    return safeQuantity
+  }
+
+  return Math.min(safeQuantity, maximumQuantity)
+}
+
+function getAvailableStock(product) {
+  const stockQuantity = Number(product?.stock_quantity)
+
+  if (!Number.isFinite(stockQuantity)) {
+    return null
+  }
+
+  return Math.max(0, Math.floor(stockQuantity))
 }
 
 function StorefrontPage() {
@@ -107,20 +123,26 @@ function StorefrontPage() {
       const [settingsResult, productsResult] = await Promise.all([
         supabase
           .from('store_settings')
-          .select('store_name, store_tagline, whatsapp_number, currency_code, currency_symbol')
+          .select(
+            'store_name, store_tagline, whatsapp_number, currency_code, currency_symbol',
+          )
           .limit(1)
           .maybeSingle(),
         supabase.rpc('get_store_public_products'),
       ])
 
       if (settingsResult.error) {
-        setErrorMessage(`خطأ في تحميل إعدادات المتجر: ${settingsResult.error.message}`)
+        setErrorMessage(
+          `خطأ في تحميل إعدادات المتجر: ${settingsResult.error.message}`,
+        )
         setLoading(false)
         return
       }
 
       if (productsResult.error) {
-        setErrorMessage(`خطأ في تحميل المنتجات: ${productsResult.error.message}`)
+        setErrorMessage(
+          `خطأ في تحميل المنتجات: ${productsResult.error.message}`,
+        )
         setLoading(false)
         return
       }
@@ -201,27 +223,43 @@ function StorefrontPage() {
     })
   }, [products, searchQuery, selectedCategory])
 
-  function handleQuantityChange(productId, value) {
+  function handleQuantityChange(product, value) {
+    const availableStock = getAvailableStock(product)
+
     setQuantities((currentQuantities) => ({
       ...currentQuantities,
-      [productId]: value,
+      [product.id]: getSafeQuantity(value, availableStock),
     }))
   }
 
   function handleAddToCart(event, product) {
     event.stopPropagation()
 
-    if (product.stock_status === 'out_of_stock') {
+    const availableStock = getAvailableStock(product)
+
+    if (product.stock_status === 'out_of_stock' || availableStock === 0) {
+      setCartMessage('هذا المنتج غير متوفر حالياً.')
       return
     }
 
-    const quantityToAdd = getSafeQuantity(quantities[product.id] ?? 1)
+    const requestedQuantity = getSafeQuantity(quantities[product.id] ?? 1)
+
+    const quantityToAdd = getSafeQuantity(
+      quantities[product.id] ?? 1,
+      availableStock,
+    )
 
     addItem(product, quantityToAdd)
 
-    setCartMessage(
-      `تمت إضافة ${quantityToAdd} من "${product.name}" إلى السلة.`,
-    )
+    if (availableStock !== null && requestedQuantity > availableStock) {
+      setCartMessage(
+        `تمت إضافة ${quantityToAdd} من "${product.name}" لأن الكمية المتاحة هي ${availableStock}.`,
+      )
+    } else {
+      setCartMessage(
+        `تمت إضافة ${quantityToAdd} من "${product.name}" إلى السلة.`,
+      )
+    }
 
     setQuantities((currentQuantities) => ({
       ...currentQuantities,
@@ -284,9 +322,7 @@ function StorefrontPage() {
             <span className="store-cart-count">{totalItems}</span>
           </button>
 
-          <div className="header-note">
-            متجر دبوس اونلاين
-          </div>
+          <div className="header-note">متجر دبوس اونلاين</div>
         </div>
       </header>
 
@@ -348,7 +384,10 @@ function StorefrontPage() {
         </section>
 
         {cartMessage ? (
-          <p className="cart-success-message storefront-cart-message" role="status">
+          <p
+            className="cart-success-message storefront-cart-message"
+            role="status"
+          >
             {cartMessage}
           </p>
         ) : null}
@@ -362,6 +401,7 @@ function StorefrontPage() {
           <section className="empty-state">
             <h2>لا توجد أصناف مطابقة</h2>
             <p>جرّب تغيير كلمة البحث أو اختر تصنيفاً آخر.</p>
+
             <button
               type="button"
               className="details-button"
@@ -376,8 +416,16 @@ function StorefrontPage() {
         ) : (
           <section className="products-list" aria-label="قائمة المنتجات">
             {filteredProducts.map((product) => {
-              const isAvailable = product.stock_status !== 'out_of_stock'
-              const quantityValue = quantities[product.id] ?? 1
+              const availableStock = getAvailableStock(product)
+
+              const isAvailable =
+                product.stock_status !== 'out_of_stock' &&
+                availableStock !== 0
+
+              const quantityValue = getSafeQuantity(
+                quantities[product.id] ?? 1,
+                availableStock,
+              )
 
               return (
                 <article
@@ -426,7 +474,13 @@ function StorefrontPage() {
                             : 'stock unavailable'
                         }
                       >
-                        {isAvailable ? 'متوفر' : 'غير متوفر'}
+                        {!isAvailable
+                          ? 'غير متوفر'
+                          : availableStock === null
+                            ? 'متوفر'
+                            : availableStock <= 3
+                              ? `كمية محدودة: ${availableStock} قطعة`
+                              : `متوفر: ${availableStock} قطعة`}
                       </span>
                     </div>
 
@@ -461,21 +515,20 @@ function StorefrontPage() {
 
                     <label className="quick-quantity-field">
                       <span>الكمية</span>
+
                       <input
                         type="number"
                         min="1"
+                        max={availableStock ?? undefined}
                         step="1"
                         value={quantityValue}
                         disabled={!isAvailable}
                         inputMode="numeric"
                         onChange={(event) =>
-                          handleQuantityChange(product.id, event.target.value)
+                          handleQuantityChange(product, event.target.value)
                         }
                         onBlur={(event) =>
-                          handleQuantityChange(
-                            product.id,
-                            getSafeQuantity(event.target.value),
-                          )
+                          handleQuantityChange(product, event.target.value)
                         }
                         onClick={(event) => event.stopPropagation()}
                         aria-label={`كمية ${product.name}`}
@@ -504,7 +557,7 @@ function StorefrontPage() {
 
       <footer className="store-footer">
         جميع الحقوق محفوظة © {new Date().getFullYear()}{' '}
-        {store?.store_name ?? 'دبوس اونلاين'}
+        {store?.store_name ?? 'دبوس اونلاين - Abo Sabine'}
       </footer>
     </div>
   )
