@@ -51,14 +51,30 @@ async function getProductImageUrl(imagePath) {
   return data.signedUrl
 }
 
-function getSafeQuantity(value) {
+function getSafeQuantity(value, maximumQuantity = null) {
   const quantity = Number(value)
 
   if (!Number.isFinite(quantity)) {
     return 1
   }
 
-  return Math.max(1, Math.floor(quantity))
+  const safeQuantity = Math.max(1, Math.floor(quantity))
+
+  if (maximumQuantity === null) {
+    return safeQuantity
+  }
+
+  return Math.min(safeQuantity, maximumQuantity)
+}
+
+function getAvailableStock(product) {
+  const stockQuantity = Number(product?.stock_quantity)
+
+  if (!Number.isFinite(stockQuantity)) {
+    return null
+  }
+
+  return Math.max(0, Math.floor(stockQuantity))
 }
 
 function ProductDetailsImage({ imageUrl, productName }) {
@@ -147,18 +163,37 @@ function ProductDetailsPage() {
   }, [slug])
 
   function handleAddToCart() {
-    if (!product || product.stock_status === 'out_of_stock') {
-      return
-    }
+  if (!product) {
+    return
+  }
 
-    const quantityToAdd = getSafeQuantity(quantity)
+  const availableStock = getAvailableStock(product)
 
-    addItem(product, quantityToAdd)
+  if (product.stock_status === 'out_of_stock' || availableStock === 0) {
+    setCartMessage('هذا المنتج غير متوفر حالياً.')
+    return
+  }
+
+  const requestedQuantity = getSafeQuantity(quantity)
+  const quantityToAdd = getSafeQuantity(quantity, availableStock)
+
+  addItem(product, quantityToAdd)
+
+  if (
+    availableStock !== null &&
+    requestedQuantity > availableStock
+  ) {
+    setCartMessage(
+      `تمت إضافة ${quantityToAdd} من "${product.name}" لأن الكمية المتاحة هي ${availableStock}.`,
+    )
+  } else {
     setCartMessage(
       `تمت إضافة ${quantityToAdd} من "${product.name}" إلى السلة.`,
     )
-    setQuantity(1)
   }
+
+  setQuantity(1)
+}
 
   function handleWhatsAppInquiry() {
     if (!product || !whatsappNumber) {
@@ -205,8 +240,12 @@ function ProductDetailsPage() {
     )
   }
 
-  const isAvailable = product.stock_status !== 'out_of_stock'
-  const specifications = Object.entries(product.specifications ?? {})
+ const availableStock = getAvailableStock(product)
+const isAvailable =
+  product.stock_status !== 'out_of_stock' &&
+  availableStock !== 0
+
+const specifications = Object.entries(product.specifications ?? {})
 
   return (
     <div className="store-app" dir="rtl">
@@ -281,10 +320,16 @@ function ProductDetailsPage() {
             </div>
 
             <span
-              className={isAvailable ? 'stock available' : 'stock unavailable'}
-            >
-              {isAvailable ? 'متوفر حالياً' : 'غير متوفر حالياً'}
-            </span>
+  className={isAvailable ? 'stock available' : 'stock unavailable'}
+>
+  {!isAvailable
+    ? 'غير متوفر حالياً'
+    : availableStock === null
+      ? 'متوفر حالياً'
+      : availableStock <= 3
+        ? `كمية محدودة: ${availableStock} قطعة`
+        : `متوفر: ${availableStock} قطعة`}
+</span>
 
             {product.description ? (
               <div className="product-details-description">
@@ -318,14 +363,21 @@ function ProductDetailsPage() {
                 <input
                   type="number"
                   min="1"
+                  max={availableStock ?? undefined}
                   step="1"
                   value={quantity}
                   disabled={!isAvailable}
                   inputMode="numeric"
-                  onChange={(event) => setQuantity(event.target.value)}
+                  onChange={(event) =>
+  setQuantity(
+    getSafeQuantity(event.target.value, availableStock),
+  )
+}
                   onBlur={(event) =>
-                    setQuantity(getSafeQuantity(event.target.value))
-                  }
+  setQuantity(
+    getSafeQuantity(event.target.value, availableStock),
+  )
+}
                   aria-label={`كمية ${product.name}`}
                 />
               </label>

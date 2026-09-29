@@ -62,7 +62,31 @@ function CartItemImage({ imagePath, name }) {
     />
   )
 }
+function getAvailableStock(item) {
+  const stockQuantity = Number(item?.stock_quantity)
 
+  if (!Number.isFinite(stockQuantity)) {
+    return null
+  }
+
+  return Math.max(0, Math.floor(stockQuantity))
+}
+
+function getSafeQuantity(value, maximumQuantity = null) {
+  const quantity = Number(value)
+
+  if (!Number.isFinite(quantity)) {
+    return 1
+  }
+
+  const safeQuantity = Math.max(1, Math.floor(quantity))
+
+  if (maximumQuantity === null) {
+    return safeQuantity
+  }
+
+  return Math.min(safeQuantity, maximumQuantity)
+}
 function CartPage() {
   const navigate = useNavigate()
   const {
@@ -74,15 +98,19 @@ function CartPage() {
     clearCart,
   } = useCart()
 
-  function handleQuantityChange(item, value) {
-    const quantity = Number(value)
+ function handleQuantityChange(item, value) {
+  const availableStock = getAvailableStock(item)
+  const requestedQuantity = Number(value)
 
-    if (!Number.isInteger(quantity) || quantity < 1) {
-      return
-    }
-
-    updateQuantity(item.id, quantity)
+  if (!Number.isFinite(requestedQuantity) || requestedQuantity < 1) {
+    return
   }
+
+  updateQuantity(
+    item.id,
+    getSafeQuantity(requestedQuantity, availableStock),
+  )
+}
 
   function handleClearCart() {
     const confirmed = window.confirm(
@@ -170,17 +198,26 @@ function CartPage() {
                   </div>
 
                   <label className="cart-quantity-field">
-                    الكمية
-                    <input
-                      type="number"
-                      min="1"
-                      step="1"
-                      value={item.quantity}
-                      onChange={(event) =>
-                        handleQuantityChange(item, event.target.value)
-                      }
-                    />
-                  </label>
+  <span>الكمية</span>
+
+  <input
+    type="number"
+    min="1"
+    max={getAvailableStock(item) ?? undefined}
+    step="1"
+    value={item.quantity}
+    onChange={(event) =>
+      handleQuantityChange(item, event.target.value)
+    }
+    aria-label={`كمية ${item.name}`}
+  />
+
+  {getAvailableStock(item) !== null ? (
+    <small>
+      المتاح: {getAvailableStock(item)} قطعة
+    </small>
+  ) : null}
+</label>
 
                   <div className="cart-item-total">
                     <strong>{formatPrice(item.price * item.quantity)}</strong>

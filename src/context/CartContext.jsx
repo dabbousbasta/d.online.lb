@@ -13,6 +13,26 @@ function normalizeQuantity(value) {
   return Math.max(1, Math.floor(quantity))
 }
 
+function getAvailableStock(product) {
+  const stockQuantity = Number(product?.stock_quantity)
+
+  if (!Number.isFinite(stockQuantity)) {
+    return null
+  }
+
+  return Math.max(0, Math.floor(stockQuantity))
+}
+
+function limitQuantityToStock(quantity, stockQuantity) {
+  const normalizedQuantity = normalizeQuantity(quantity)
+
+  if (stockQuantity === null) {
+    return normalizedQuantity
+  }
+
+  return Math.min(normalizedQuantity, stockQuantity)
+}
+
 function getInitialCart() {
   try {
     const savedCart = window.localStorage.getItem(CART_STORAGE_KEY)
@@ -29,10 +49,16 @@ function getInitialCart() {
 
     return parsedCart
       .filter((item) => item && item.id)
-      .map((item) => ({
-        ...item,
-        quantity: normalizeQuantity(item.quantity),
-      }))
+      .map((item) => {
+        const stockQuantity = getAvailableStock(item)
+
+        return {
+          ...item,
+          stock_quantity: stockQuantity,
+          quantity: limitQuantityToStock(item.quantity, stockQuantity),
+        }
+      })
+      .filter((item) => item.stock_quantity === null || item.stock_quantity > 0)
   } catch {
     return []
   }
@@ -50,18 +76,32 @@ export function CartProvider({ children }) {
       return
     }
 
-    const safeQuantityToAdd = normalizeQuantity(quantityToAdd)
+    const stockQuantity = getAvailableStock(product)
+
+    if (stockQuantity === 0) {
+      return
+    }
+
+    const safeQuantityToAdd = limitQuantityToStock(
+      quantityToAdd,
+      stockQuantity,
+    )
 
     setItems((currentItems) => {
       const existingItem = currentItems.find((item) => item.id === product.id)
 
       if (existingItem) {
+        const availableStock =
+          stockQuantity ?? getAvailableStock(existingItem)
+
         return currentItems.map((item) =>
           item.id === product.id
             ? {
                 ...item,
-                quantity: normalizeQuantity(
+                stock_quantity: availableStock,
+                quantity: limitQuantityToStock(
                   item.quantity + safeQuantityToAdd,
+                  availableStock,
                 ),
               }
             : item,
@@ -76,6 +116,7 @@ export function CartProvider({ children }) {
           slug: product.slug,
           price: Number(product.display_price ?? product.price ?? 0),
           imagePath: product.cover_image_path || product.image_path || '',
+          stock_quantity: stockQuantity,
           quantity: safeQuantityToAdd,
         },
       ]
@@ -83,14 +124,19 @@ export function CartProvider({ children }) {
   }
 
   function updateQuantity(productId, nextQuantity) {
-    const safeQuantity = normalizeQuantity(nextQuantity)
-
     setItems((currentItems) =>
-      currentItems.map((item) =>
-        item.id === productId
-          ? { ...item, quantity: safeQuantity }
-          : item,
-      ),
+      currentItems.map((item) => {
+        if (item.id !== productId) {
+          return item
+        }
+
+        const stockQuantity = getAvailableStock(item)
+
+        return {
+          ...item,
+          quantity: limitQuantityToStock(nextQuantity, stockQuantity),
+        }
+      }),
     )
   }
 
