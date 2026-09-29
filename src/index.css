@@ -3207,3 +3207,19 @@ button {
     width: 100%;
   }
 }
+.clickable-order-row {
+  cursor: pointer;
+}
+
+.clickable-order-row:hover td {
+  background: #f0f9ff;
+}
+
+.clickable-order-row:focus-visible {
+  outline: 3px solid rgba(28, 93, 136, 0.35);
+  outline-offset: -3px;
+}
+
+.clickable-order-row:focus-visible td {
+  background: #eff6ff;
+}

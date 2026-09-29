@@ -317,7 +317,7 @@ function AdminOrdersPage() {
                   <th>الإجمالي</th>
                   <th>الحالة</th>
                   <th>تاريخ الطلب</th>
-                  <th>التفاصيل</th>
+                  
                 </tr>
               </thead>
 
@@ -327,7 +327,19 @@ function AdminOrdersPage() {
                   const itemsCount = order.total_items ?? 0
 
                   return (
-                    <tr key={order.id}>
+                    <tr
+  key={order.id}
+  className="clickable-order-row"
+  role="link"
+  tabIndex={0}
+  onClick={() => navigate(`/admin/orders/${order.id}`)}
+  onKeyDown={(event) => {
+    if (event.key === 'Enter' || event.key === ' ') {
+      event.preventDefault()
+      navigate(`/admin/orders/${order.id}`)
+    }
+  }}
+>
                       <td>
                         <strong>#{order.order_number}</strong>
                       </td>
@@ -367,15 +379,7 @@ function AdminOrdersPage() {
                         <small>{formatDate(order.created_at)}</small>
                       </td>
 
-                      <td>
-                        <button
-                          type="button"
-                          className="table-edit-button"
-                          onClick={() => navigate(`/admin/orders/${order.id}`)}
-                        >
-                          عرض التفاصيل
-                        </button>
-                      </td>
+                      
                     </tr>
                   )
                 })}

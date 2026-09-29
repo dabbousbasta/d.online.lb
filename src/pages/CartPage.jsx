@@ -187,7 +187,15 @@ function CartPage() {
                     <button
                       type="button"
                       className="cart-remove-button"
-                      onClick={() => removeItem(item.id)}
+                      onClick={() => {
+  const confirmed = window.confirm(
+    `هل تريد حذف "${item.name}" من سلة المشتريات؟`,
+  )
+
+ if (confirmed) {
+  removeItem(item.id)
+}
+}}
                     >
                       إزالة
                     </button>
