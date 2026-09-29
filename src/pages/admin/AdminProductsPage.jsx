@@ -15,6 +15,12 @@ const FILTER_TABS = [
   { id: 'low_stock', label: 'الكمية المحدودة' },
 ]
 
+const STOCK_OPTIONS = [
+  { id: 'in_stock', label: 'متوفر' },
+  { id: 'low_stock', label: 'كمية محدودة' },
+  { id: 'out_of_stock', label: 'غير متوفر' },
+]
+
 function formatPrice(price) {
   if (price === null || price === undefined) {
     return '—'
@@ -27,14 +33,19 @@ function formatPrice(price) {
   }).format(Number(price))
 }
 
+function createSlug(value) {
+  return String(value ?? '')
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9\u0600-\u06ff]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+}
+
 function getImagePath(imagePath) {
-  const value = String(imagePath ?? '').trim()
-
-  if (!value) {
-    return ''
-  }
-
-  return value.replace(/^item-images\//, '').replace(/^\/+/, '')
+  return String(imagePath ?? '')
+    .trim()
+    .replace(/^item-images\//, '')
+    .replace(/^\/+/, '')
 }
 
 async function getImageUrl(imagePath) {
@@ -48,11 +59,7 @@ async function getImageUrl(imagePath) {
     .from('item-images')
     .createSignedUrl(normalizedPath, 60 * 60)
 
-  if (error) {
-    return ''
-  }
-
-  return data.signedUrl
+  return error ? '' : data.signedUrl
 }
 
 function getSavedFilter() {
@@ -64,14 +71,15 @@ function getSavedFilter() {
     }
 
     const parsedValue = JSON.parse(savedValue)
-
-    const isKnownFilter = FILTER_TABS.some(
+    const filterMode = FILTER_TABS.some(
       (tab) => tab.id === parsedValue?.filterMode,
     )
+      ? parsedValue.filterMode
+      : 'all'
 
     return {
       searchText: String(parsedValue?.searchText ?? ''),
-      filterMode: isKnownFilter ? parsedValue.filterMode : 'all',
+      filterMode,
     }
   } catch {
     return { searchText: '', filterMode: 'all' }
@@ -81,25 +89,18 @@ function getSavedFilter() {
 function getRecentSearches() {
   try {
     const savedValue = window.localStorage.getItem(RECENT_SEARCHES_STORAGE_KEY)
+    const parsedValue = JSON.parse(savedValue ?? '[]')
 
-    if (!savedValue) {
-      return []
-    }
-
-    const parsedValue = JSON.parse(savedValue)
-
-    if (!Array.isArray(parsedValue)) {
-      return []
-    }
-
-    return parsedValue
-      .filter(
-        (item) =>
-          item &&
-          typeof item.searchText === 'string' &&
-          typeof item.filterMode === 'string',
-      )
-      .slice(0, MAX_RECENT_SEARCHES)
+    return Array.isArray(parsedValue)
+      ? parsedValue
+          .filter(
+            (item) =>
+              item &&
+              typeof item.searchText === 'string' &&
+              typeof item.filterMode === 'string',
+          )
+          .slice(0, MAX_RECENT_SEARCHES)
+      : []
   } catch {
     return []
   }
@@ -110,22 +111,7 @@ function getFilterLabel(filterMode) {
 }
 
 function getStockLabel(stockStatus) {
-  if (stockStatus === 'in_stock') {
-    return 'متوفر'
-  }
-
-  if (stockStatus === 'low_stock') {
-    return 'كمية محدودة'
-  }
-
-  return 'غير متوفر'
-}
-function createSlug(value) {
-  return String(value ?? '')
-    .trim()
-    .toLowerCase()
-    .replace(/[^a-z0-9\u0600-\u06ff]+/g, '-')
-    .replace(/^-+|-+$/g, '')
+  return STOCK_OPTIONS.find((option) => option.id === stockStatus)?.label ?? 'غير متوفر'
 }
 
 function getInitialQuickEdit(product) {
@@ -135,7 +121,20 @@ function getInitialQuickEdit(product) {
       product.online_price === null || product.online_price === undefined
         ? ''
         : String(product.online_price),
+    categoryId: product.category_id ?? '',
+    stockQuantity: String(product.stock_quantity ?? 0),
+    stockStatus: product.stock_status ?? 'out_of_stock',
   }
+}
+
+function getEditSignature(edit) {
+  return JSON.stringify({
+    isPublished: Boolean(edit.isPublished),
+    onlinePrice: String(edit.onlinePrice ?? '').trim(),
+    categoryId: edit.categoryId || '',
+    stockQuantity: String(edit.stockQuantity ?? '').trim(),
+    stockStatus: edit.stockStatus || 'out_of_stock',
+  })
 }
 
 function AdminProductsPage() {
@@ -146,10 +145,14 @@ function AdminProductsPage() {
   const [searchText, setSearchText] = useState(initialFilter.searchText)
   const [filterMode, setFilterMode] = useState(initialFilter.filterMode)
   const [recentSearches, setRecentSearches] = useState(getRecentSearches)
+  const [categories, setCategories] = useState([])
   const [products, setProducts] = useState([])
   const [quickEdits, setQuickEdits] = useState({})
-  const [savingProductId, setSavingProductId] = useState('')
+  const [originalEdits, setOriginalEdits] = useState({})
+  const [savingIds, setSavingIds] = useState([])
+  const [bulkSaving, setBulkSaving] = useState(false)
   const [rowMessages, setRowMessages] = useState({})
+  const [bulkMessage, setBulkMessage] = useState('')
   const [totalCount, setTotalCount] = useState(0)
   const [page, setPage] = useState(0)
   const [loading, setLoading] = useState(true)
@@ -158,42 +161,57 @@ function AdminProductsPage() {
   const loadProducts = useCallback(async () => {
     setLoading(true)
     setErrorMessage('')
+    setBulkMessage('')
 
-    const { data, error } = await supabase.rpc('get_store_admin_products', {
-      search_text: searchText.trim() || null,
-      filter_mode: filterMode,
-      page_limit: PAGE_SIZE,
-      page_offset: page * PAGE_SIZE,
-    })
+    const [productsResult, categoriesResult] = await Promise.all([
+      supabase.rpc('get_store_admin_products', {
+        search_text: searchText.trim() || null,
+        filter_mode: filterMode,
+        page_limit: PAGE_SIZE,
+        page_offset: page * PAGE_SIZE,
+      }),
+      supabase
+        .from('store_categories')
+        .select('id, name, is_active, sort_order')
+        .order('sort_order', { ascending: true })
+        .order('name', { ascending: true }),
+    ])
 
-    if (error) {
-      setErrorMessage(`تعذر تحميل المنتجات: ${error.message}`)
+    if (productsResult.error) {
+      setErrorMessage(`تعذر تحميل المنتجات: ${productsResult.error.message}`)
+      setLoading(false)
+      return
+    }
+
+    if (categoriesResult.error) {
+      setErrorMessage(`تعذر تحميل التصنيفات: ${categoriesResult.error.message}`)
       setLoading(false)
       return
     }
 
     const productsWithImages = await Promise.all(
-      (data ?? []).map(async (product) => {
-        const imagePath = product.cover_image_path || product.image_path
+      (productsResult.data ?? []).map(async (product) => ({
+        ...product,
+        imageUrl: await getImageUrl(
+          product.cover_image_path || product.image_path,
+        ),
+      })),
+    )
 
-        return {
-          ...product,
-          imageUrl: await getImageUrl(imagePath),
-        }
-      }),
+    const initialEdits = Object.fromEntries(
+      productsWithImages.map((product) => [
+        product.item_id,
+        getInitialQuickEdit(product),
+      ]),
     )
 
     setProducts(productsWithImages)
-    setQuickEdits(
-      Object.fromEntries(
-        productsWithImages.map((product) => [
-          product.item_id,
-          getInitialQuickEdit(product),
-        ]),
-      ),
-    )
+    setCategories(categoriesResult.data ?? [])
+    setQuickEdits(initialEdits)
+    setOriginalEdits(initialEdits)
+    setSavingIds([])
     setRowMessages({})
-    setTotalCount(Number(data?.[0]?.total_count ?? 0))
+    setTotalCount(Number(productsResult.data?.[0]?.total_count ?? 0))
     setLoading(false)
   }, [filterMode, page, searchText])
 
@@ -204,38 +222,33 @@ function AdminProductsPage() {
   useEffect(() => {
     window.localStorage.setItem(
       FILTER_STORAGE_KEY,
-      JSON.stringify({
-        searchText,
-        filterMode,
-      }),
+      JSON.stringify({ searchText, filterMode }),
     )
-  }, [filterMode, searchText])
+  }, [searchText, filterMode])
 
   function saveRecentSearch(nextSearchText, nextFilterMode) {
-    const cleanSearchText = nextSearchText.trim()
+    const searchValue = nextSearchText.trim()
 
-    if (!cleanSearchText && nextFilterMode === 'all') {
+    if (!searchValue && nextFilterMode === 'all') {
       return
     }
 
     const nextEntry = {
-      searchText: cleanSearchText,
+      searchText: searchValue,
       filterMode: nextFilterMode,
     }
 
     setRecentSearches((currentSearches) => {
-      const filteredSearches = currentSearches.filter(
-        (item) =>
-          !(
-            item.searchText === nextEntry.searchText &&
-            item.filterMode === nextEntry.filterMode
-          ),
-      )
-
-      const updatedSearches = [nextEntry, ...filteredSearches].slice(
-        0,
-        MAX_RECENT_SEARCHES,
-      )
+      const updatedSearches = [
+        nextEntry,
+        ...currentSearches.filter(
+          (item) =>
+            !(
+              item.searchText === nextEntry.searchText &&
+              item.filterMode === nextEntry.filterMode
+            ),
+        ),
+      ].slice(0, MAX_RECENT_SEARCHES)
 
       window.localStorage.setItem(
         RECENT_SEARCHES_STORAGE_KEY,
@@ -254,26 +267,6 @@ function AdminProductsPage() {
     saveRecentSearch(nextSearchText, nextFilterMode)
   }
 
-  function handleSearch(event) {
-    event.preventDefault()
-    applyFilter(searchInput, filterMode)
-  }
-
-  function handleTabChange(nextFilterMode) {
-    applyFilter(searchInput, nextFilterMode)
-  }
-
-  function handleRecentSearch(recentSearch) {
-    applyFilter(recentSearch.searchText, recentSearch.filterMode)
-  }
-
-  function clearFilter() {
-    setSearchInput('')
-    setSearchText('')
-    setFilterMode('all')
-    setPage(0)
-  }
-
   function updateQuickEdit(itemId, field, value) {
     setQuickEdits((currentEdits) => ({
       ...currentEdits,
@@ -287,26 +280,48 @@ function AdminProductsPage() {
       ...currentMessages,
       [itemId]: '',
     }))
+
+    setBulkMessage('')
   }
 
-  async function handleQuickSave(product) {
-    const quickEdit = quickEdits[product.item_id] ?? getInitialQuickEdit(product)
-    const cleanOnlinePrice = String(quickEdit.onlinePrice ?? '').trim()
+  function isChanged(itemId) {
+    const currentEdit = quickEdits[itemId]
+    const originalEdit = originalEdits[itemId]
+
+    return (
+      currentEdit &&
+      originalEdit &&
+      getEditSignature(currentEdit) !== getEditSignature(originalEdit)
+    )
+  }
+
+  function getChangedProducts() {
+    return products.filter((product) => isChanged(product.item_id))
+  }
+
+  function validateAndBuildPayload(product) {
+    const quickEdit =
+      quickEdits[product.item_id] ?? getInitialQuickEdit(product)
+
+    const onlinePriceText = String(quickEdit.onlinePrice ?? '').trim()
     const onlinePrice =
-      cleanOnlinePrice === '' ? null : Number(cleanOnlinePrice)
+      onlinePriceText === '' ? null : Number(onlinePriceText)
+
+    const stockQuantity = Number(quickEdit.stockQuantity)
 
     if (
       onlinePrice !== null &&
       (!Number.isFinite(onlinePrice) || onlinePrice < 0)
     ) {
-      setRowMessages((currentMessages) => ({
-        ...currentMessages,
-        [product.item_id]: {
-          type: 'error',
-          text: 'أدخل سعر متجر صحيحاً، أو اترك الحقل فارغاً لاستخدام السعر الأساسي.',
-        },
-      }))
-      return
+      return {
+        error: 'أدخل سعر متجر صحيحاً أو اتركه فارغاً لاستخدام السعر الأساسي.',
+      }
+    }
+
+    if (!Number.isInteger(stockQuantity) || stockQuantity < 0) {
+      return {
+        error: 'الكمية يجب أن تكون رقماً صحيحاً يساوي صفراً أو أكبر.',
+      }
     }
 
     const effectivePrice =
@@ -316,38 +331,49 @@ function AdminProductsPage() {
       quickEdit.isPublished &&
       (!Number.isFinite(effectivePrice) || effectivePrice < 0)
     ) {
-      setRowMessages((currentMessages) => ({
-        ...currentMessages,
-        [product.item_id]: {
-          type: 'error',
-          text: 'لا يمكن عرض صنف أونلاين من دون سعر صالح.',
-        },
-      }))
-      return
+      return {
+        error: 'لا يمكن عرض الصنف أونلاين من دون سعر صالح.',
+      }
     }
 
-    setSavingProductId(product.item_id)
-    setRowMessages((currentMessages) => ({
-      ...currentMessages,
-      [product.item_id]: '',
-    }))
+    return {
+      edit: quickEdit,
+      payload: {
+        item_id: product.item_id,
+        cover_image_path: product.cover_image_path ?? null,
+        category_id: quickEdit.categoryId || null,
+        slug: product.slug || createSlug(product.name),
+        is_published: Boolean(quickEdit.isPublished),
+        online_price: onlinePrice,
+        old_price: null,
+        stock_quantity: stockQuantity,
+        stock_status: quickEdit.stockStatus || 'out_of_stock',
+        show_when_out_of_stock: true,
+        sort_order: 0,
+      },
+    }
+  }
 
-    const payload = {
-  item_id: product.item_id,
-  cover_image_path: product.cover_image_path ?? null,
-  slug: product.slug || createSlug(product.name),
-  is_published: Boolean(quickEdit.isPublished),
-  online_price: onlinePrice,
-  old_price: null,
-  stock_quantity: Number(product.stock_quantity ?? 0),
-  stock_status: product.stock_status ?? 'out_of_stock',
-  show_when_out_of_stock: true,
-  sort_order: 0,
-}
+  async function saveProduct(product) {
+    const validation = validateAndBuildPayload(product)
+
+    if (validation.error) {
+      setRowMessages((currentMessages) => ({
+        ...currentMessages,
+        [product.item_id]: { type: 'error', text: validation.error },
+      }))
+      return false
+    }
+
+    setSavingIds((currentIds) => [...currentIds, product.item_id])
 
     const { error } = await supabase
       .from('store_product_settings')
-      .upsert(payload, { onConflict: 'item_id' })
+      .upsert(validation.payload, { onConflict: 'item_id' })
+
+    setSavingIds((currentIds) =>
+      currentIds.filter((itemId) => itemId !== product.item_id),
+    )
 
     if (error) {
       setRowMessages((currentMessages) => ({
@@ -357,8 +383,19 @@ function AdminProductsPage() {
           text: `تعذر الحفظ: ${error.message}`,
         },
       }))
-      setSavingProductId('')
-      return
+      return false
+    }
+
+    const savedEdit = {
+      ...validation.edit,
+      onlinePrice:
+        validation.payload.online_price === null
+          ? ''
+          : String(validation.payload.online_price),
+      categoryId: validation.payload.category_id ?? '',
+      stockQuantity: String(validation.payload.stock_quantity),
+      stockStatus: validation.payload.stock_status,
+      isPublished: validation.payload.is_published,
     }
 
     setProducts((currentProducts) =>
@@ -366,27 +403,80 @@ function AdminProductsPage() {
         currentProduct.item_id === product.item_id
           ? {
               ...currentProduct,
-              is_published: Boolean(quickEdit.isPublished),
-              online_price: onlinePrice,
+              category_id: validation.payload.category_id,
+              category_name:
+                categories.find(
+                  (category) => category.id === validation.payload.category_id,
+                )?.name ?? null,
+              is_published: validation.payload.is_published,
+              online_price: validation.payload.online_price,
+              stock_quantity: validation.payload.stock_quantity,
+              stock_status: validation.payload.stock_status,
+              slug: validation.payload.slug,
             }
           : currentProduct,
       ),
     )
 
+    setQuickEdits((currentEdits) => ({
+      ...currentEdits,
+      [product.item_id]: savedEdit,
+    }))
+
+    setOriginalEdits((currentEdits) => ({
+      ...currentEdits,
+      [product.item_id]: savedEdit,
+    }))
+
     setRowMessages((currentMessages) => ({
       ...currentMessages,
       [product.item_id]: {
         type: 'success',
-        text: 'تم حفظ العرض والسعر بنجاح.',
+        text: 'تم حفظ هذا الصنف بنجاح.',
       },
     }))
-    setSavingProductId('')
+
+    return true
+  }
+
+  async function handleSaveRow(product) {
+    setBulkMessage('')
+    await saveProduct(product)
+  }
+
+  async function handleBulkSave() {
+    const changedProducts = getChangedProducts()
+
+    if (changedProducts.length === 0) {
+      setBulkMessage('لا توجد تعديلات جديدة للحفظ في هذه الصفحة.')
+      return
+    }
+
+    setBulkSaving(true)
+    setBulkMessage('')
+    setRowMessages({})
+
+    const results = await Promise.all(
+      changedProducts.map((product) => saveProduct(product)),
+    )
+
+    const successCount = results.filter(Boolean).length
+    const failedCount = results.length - successCount
+
+    setBulkMessage(
+      failedCount === 0
+        ? `تم حفظ ${successCount} صنفاً بنجاح.`
+        : `تم حفظ ${successCount} صنفاً، وتعذر حفظ ${failedCount} صنفاً. راجع رسائل الصفوف.`,
+    )
+
+    setBulkSaving(false)
   }
 
   const totalPages = Math.max(1, Math.ceil(totalCount / PAGE_SIZE))
   const canGoPrevious = page > 0
   const canGoNext = page + 1 < totalPages
   const hasActiveFilter = Boolean(searchText.trim()) || filterMode !== 'all'
+  const changedProductsCount = getChangedProducts().length
 
   return (
     <main className="admin-page" dir="rtl">
@@ -402,13 +492,19 @@ function AdminProductsPage() {
         <p className="admin-kicker">إدارة المتجر</p>
         <h1>المنتجات</h1>
         <p>
-          ابحث عن الصنف بأي ترتيب للكلمات، ثم عدّل العرض والسعر مباشرة من
-          النتيجة أو افتح إدارة المنتج للتفاصيل الكاملة.
+          ابحث عن الأصناف وعدّل العرض والسعر والتصنيف والمخزون مباشرة، ثم احفظ
+          صفاً واحداً أو كل التعديلات دفعة واحدة.
         </p>
       </header>
 
       <section className="admin-search-card">
-        <form className="product-search-form" onSubmit={handleSearch}>
+        <form
+          className="product-search-form"
+          onSubmit={(event) => {
+            event.preventDefault()
+            applyFilter(searchInput, filterMode)
+          }}
+        >
           <input
             value={searchInput}
             onChange={(event) => setSearchInput(event.target.value)}
@@ -424,7 +520,12 @@ function AdminProductsPage() {
             <button
               type="button"
               className="secondary-button"
-              onClick={clearFilter}
+              onClick={() => {
+                setSearchInput('')
+                setSearchText('')
+                setFilterMode('all')
+                setPage(0)
+              }}
             >
               مسح الفلتر
             </button>
@@ -451,7 +552,7 @@ function AdminProductsPage() {
                   ? 'admin-filter-tab active'
                   : 'admin-filter-tab'
               }
-              onClick={() => handleTabChange(tab.id)}
+              onClick={() => applyFilter(searchInput, tab.id)}
             >
               {tab.label}
             </button>
@@ -463,22 +564,23 @@ function AdminProductsPage() {
             <span>آخر 5 فلاتر:</span>
 
             <div>
-              {recentSearches.map((recentSearch, index) => {
-                const visibleText = recentSearch.searchText
-                  ? `${recentSearch.searchText} — ${getFilterLabel(recentSearch.filterMode)}`
-                  : getFilterLabel(recentSearch.filterMode)
-
-                return (
-                  <button
-                    key={`${recentSearch.searchText}-${recentSearch.filterMode}-${index}`}
-                    type="button"
-                    className="recent-admin-search-button"
-                    onClick={() => handleRecentSearch(recentSearch)}
-                  >
-                    {visibleText}
-                  </button>
-                )
-              })}
+              {recentSearches.map((recentSearch, index) => (
+                <button
+                  key={`${recentSearch.searchText}-${recentSearch.filterMode}-${index}`}
+                  type="button"
+                  className="recent-admin-search-button"
+                  onClick={() =>
+                    applyFilter(
+                      recentSearch.searchText,
+                      recentSearch.filterMode,
+                    )
+                  }
+                >
+                  {recentSearch.searchText
+                    ? `${recentSearch.searchText} — ${getFilterLabel(recentSearch.filterMode)}`
+                    : getFilterLabel(recentSearch.filterMode)}
+                </button>
+              ))}
             </div>
           </div>
         ) : null}
@@ -489,7 +591,7 @@ function AdminProductsPage() {
       ) : null}
 
       <section className="admin-list-card">
-        <div className="admin-section-heading">
+        <div className="admin-section-heading admin-products-heading">
           <div>
             <h2>نتائج الأصناف</h2>
             <p className="admin-results-filter-note">
@@ -498,8 +600,27 @@ function AdminProductsPage() {
             </p>
           </div>
 
-          <span className="count-chip">{totalCount}</span>
+          <div className="admin-bulk-save-area">
+            <span className="count-chip">{totalCount}</span>
+
+            <button
+              type="button"
+              className="admin-primary-button bulk-save-button"
+              disabled={bulkSaving || loading || changedProductsCount === 0}
+              onClick={handleBulkSave}
+            >
+              {bulkSaving
+                ? 'جارٍ حفظ التعديلات...'
+                : `حفظ كل التعديلات (${changedProductsCount})`}
+            </button>
+          </div>
         </div>
+
+        {bulkMessage ? (
+          <p className="bulk-save-message" role="status">
+            {bulkMessage}
+          </p>
+        ) : null}
 
         {loading ? (
           <p className="admin-loading">جارٍ تحميل الأصناف...</p>
@@ -515,10 +636,18 @@ function AdminProductsPage() {
                   quickEdits[product.item_id] ?? getInitialQuickEdit(product)
 
                 const rowMessage = rowMessages[product.item_id]
-                const isSaving = savingProductId === product.item_id
+                const isSaving = savingIds.includes(product.item_id)
+                const hasChanges = isChanged(product.item_id)
 
                 return (
-                  <article className="admin-product-row" key={product.item_id}>
+                  <article
+                    className={
+                      hasChanges
+                        ? 'admin-product-row has-unsaved-changes'
+                        : 'admin-product-row'
+                    }
+                    key={product.item_id}
+                  >
                     <div className="admin-product-thumb">
                       {product.imageUrl ? (
                         <img src={product.imageUrl} alt={product.name} />
@@ -548,32 +677,26 @@ function AdminProductsPage() {
 
                       <div className="admin-product-meta">
                         <span>السعر الأساسي: {formatPrice(product.base_price)}</span>
-
-                        {product.online_price !== null ? (
-                          <span>
-                            سعر المتجر الحالي: {formatPrice(product.online_price)}
-                          </span>
-                        ) : (
-                          <span>سعر المتجر: السعر الأساسي</span>
-                        )}
-
-                        {product.category_name ? (
-                          <span>التصنيف: {product.category_name}</span>
-                        ) : null}
-
                         <span>
-                          المخزون: {getStockLabel(product.stock_status)}
+                          {product.online_price !== null
+                            ? `سعر المتجر الحالي: ${formatPrice(product.online_price)}`
+                            : 'سعر المتجر: السعر الأساسي'}
                         </span>
-
-                        <span>الكمية: {product.stock_quantity}</span>
+                        <span>
+                          التصنيف الحالي: {product.category_name || 'بدون تصنيف'}
+                        </span>
+                        <span>
+                          المخزون الحالي: {getStockLabel(product.stock_status)}
+                        </span>
+                        <span>الكمية الحالية: {product.stock_quantity}</span>
                       </div>
 
-                      <div className="quick-product-edit">
+                      <div className="quick-product-edit quick-product-edit-expanded">
                         <label className="quick-publish-field">
                           <input
                             type="checkbox"
                             checked={quickEdit.isPublished}
-                            disabled={isSaving}
+                            disabled={isSaving || bulkSaving}
                             onChange={(event) =>
                               updateQuickEdit(
                                 product.item_id,
@@ -592,7 +715,7 @@ function AdminProductsPage() {
                             min="0"
                             step="0.01"
                             value={quickEdit.onlinePrice}
-                            disabled={isSaving}
+                            disabled={isSaving || bulkSaving}
                             onChange={(event) =>
                               updateQuickEdit(
                                 product.item_id,
@@ -605,13 +728,77 @@ function AdminProductsPage() {
                           />
                         </label>
 
+                        <label className="quick-select-field">
+                          <span>التصنيف</span>
+                          <select
+                            value={quickEdit.categoryId}
+                            disabled={isSaving || bulkSaving}
+                            onChange={(event) =>
+                              updateQuickEdit(
+                                product.item_id,
+                                'categoryId',
+                                event.target.value,
+                              )
+                            }
+                          >
+                            <option value="">بدون تصنيف</option>
+
+                            {categories.map((category) => (
+                              <option key={category.id} value={category.id}>
+                                {category.name}
+                                {category.is_active ? '' : ' (مخفي)'}
+                              </option>
+                            ))}
+                          </select>
+                        </label>
+
+                        <label className="quick-select-field">
+                          <span>حالة المخزون</span>
+                          <select
+                            value={quickEdit.stockStatus}
+                            disabled={isSaving || bulkSaving}
+                            onChange={(event) =>
+                              updateQuickEdit(
+                                product.item_id,
+                                'stockStatus',
+                                event.target.value,
+                              )
+                            }
+                          >
+                            {STOCK_OPTIONS.map((option) => (
+                              <option key={option.id} value={option.id}>
+                                {option.label}
+                              </option>
+                            ))}
+                          </select>
+                        </label>
+
+                        <label className="quick-quantity-admin-field">
+                          <span>الكمية</span>
+                          <input
+                            type="number"
+                            min="0"
+                            step="1"
+                            value={quickEdit.stockQuantity}
+                            disabled={isSaving || bulkSaving}
+                            onChange={(event) =>
+                              updateQuickEdit(
+                                product.item_id,
+                                'stockQuantity',
+                                event.target.value,
+                              )
+                            }
+                            inputMode="numeric"
+                          />
+                        </label>
+
                         <button
                           type="button"
                           className="admin-primary-button quick-save-button"
-                          disabled={isSaving}
-                          onClick={() => handleQuickSave(product)}
+                          disabled={isSaving || bulkSaving || !hasChanges}
+                          onClick={() => handleSaveRow(product)}
                         >
-                          {isSaving ? 'جارٍ الحفظ...' : 'حفظ سريع'}
+                          {isSaving ? 'جارٍ الحفظ...' : 'حفظ الصف'}
                         </button>
                       </div>
 
@@ -649,7 +836,7 @@ function AdminProductsPage() {
               <button
                 type="button"
                 className="secondary-button"
-                disabled={!canGoPrevious}
+                disabled={!canGoPrevious || bulkSaving}
                 onClick={() => setPage((current) => current - 1)}
               >
                 السابق
@@ -662,7 +849,7 @@ function AdminProductsPage() {
               <button
                 type="button"
                 className="secondary-button"
-                disabled={!canGoNext}
+                disabled={!canGoNext || bulkSaving}
                 onClick={() => setPage((current) => current + 1)}
               >
                 التالي
