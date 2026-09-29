@@ -62,6 +62,7 @@ function CartItemImage({ imagePath, name }) {
     />
   )
 }
+
 function getAvailableStock(item) {
   const stockQuantity = Number(item?.stock_quantity)
 
@@ -87,6 +88,7 @@ function getSafeQuantity(value, maximumQuantity = null) {
 
   return Math.min(safeQuantity, maximumQuantity)
 }
+
 function CartPage() {
   const navigate = useNavigate()
   const {
@@ -94,23 +96,105 @@ function CartPage() {
     totalItems,
     totalPrice,
     updateQuantity,
+    refreshStock,
     removeItem,
     clearCart,
   } = useCart()
 
- function handleQuantityChange(item, value) {
-  const availableStock = getAvailableStock(item)
-  const requestedQuantity = Number(value)
+  const [stockMessage, setStockMessage] = useState('')
+  const [isRefreshingStock, setIsRefreshingStock] = useState(false)
 
-  if (!Number.isFinite(requestedQuantity) || requestedQuantity < 1) {
-    return
+  useEffect(() => {
+    async function refreshCartStock() {
+      if (items.length === 0) {
+        return
+      }
+
+      const productIds = items
+        .map((item) => item.id)
+        .filter(Boolean)
+
+      if (productIds.length === 0) {
+        return
+      }
+
+      setIsRefreshingStock(true)
+
+      const { data, error } = await supabase.rpc('get_store_cart_stock', {
+        product_ids: productIds,
+      })
+
+      if (error) {
+        setStockMessage(
+          'تعذر تحديث المخزون الآن. ستتم مراجعة الكمية عند تأكيد الطلب.',
+        )
+        setIsRefreshingStock(false)
+        return
+      }
+
+      const freshStockById = new Map(
+        (data ?? []).map((item) => [
+          item.id,
+          Math.max(0, Math.floor(Number(item.stock_quantity) || 0)),
+        ]),
+      )
+
+      const changedItems = []
+      const removedItems = []
+
+      items.forEach((item) => {
+        const freshStock = freshStockById.get(item.id)
+
+        if (freshStock === undefined || freshStock === 0) {
+          removedItems.push(item.name)
+          return
+        }
+
+        if (item.quantity > freshStock) {
+          changedItems.push({
+            name: item.name,
+            quantity: freshStock,
+          })
+        }
+      })
+
+      refreshStock(data ?? [])
+
+      if (removedItems.length > 0 && changedItems.length > 0) {
+        setStockMessage(
+          `تم تحديث السلة: أُزيلت منتجات غير متوفرة، وتم تخفيض كمية ${changedItems.length} منتج حسب المخزون المتاح.`,
+        )
+      } else if (removedItems.length > 0) {
+        setStockMessage(
+          `تمت إزالة ${removedItems.length} منتج من السلة لأنه لم يعد متوفراً.`,
+        )
+      } else if (changedItems.length > 0) {
+        setStockMessage(
+          `تم تحديث كمية ${changedItems.length} منتج حسب المخزون المتاح.`,
+        )
+      } else {
+        setStockMessage('')
+      }
+
+      setIsRefreshingStock(false)
+    }
+
+    refreshCartStock()
+  }, [refreshStock])
+
+  function handleQuantityChange(item, value) {
+    const availableStock = getAvailableStock(item)
+    const requestedQuantity = Number(value)
+
+    if (!Number.isFinite(requestedQuantity) || requestedQuantity < 1) {
+      return
+    }
+
+    updateQuantity(
+      item.id,
+      getSafeQuantity(requestedQuantity, availableStock),
+    )
   }
-
-  updateQuantity(
-    item.id,
-    getSafeQuantity(requestedQuantity, availableStock),
-  )
-}
 
   function handleClearCart() {
     const confirmed = window.confirm(
@@ -119,35 +203,36 @@ function CartPage() {
 
     if (confirmed) {
       clearCart()
+      setStockMessage('')
     }
   }
 
   return (
     <div className="store-app" dir="rtl">
       <header className="store-header">
-  <button
-    type="button"
-    className="brand brand-home-button"
-    onClick={() => navigate('/')}
-    aria-label="الذهاب إلى الصفحة الرئيسية"
-    title="الذهاب إلى الصفحة الرئيسية"
-  >
-    <div className="brand-mark">د</div>
+        <button
+          type="button"
+          className="brand brand-home-button"
+          onClick={() => navigate('/')}
+          aria-label="الذهاب إلى الصفحة الرئيسية"
+          title="الذهاب إلى الصفحة الرئيسية"
+        >
+          <div className="brand-mark">د</div>
 
-    <div className="brand-text">
-      <h1>دبوس اونلاين</h1>
-      <p>من الأساس حتى التشطيب</p>
-    </div>
-  </button>
+          <div className="brand-text">
+            <h1>دبوس اونلاين</h1>
+            <p>من الأساس حتى التشطيب</p>
+          </div>
+        </button>
 
-  <button
-    type="button"
-    className="store-back-button"
-    onClick={() => navigate('/')}
-  >
-    ← متابعة التسوق
-  </button>
-</header>
+        <button
+          type="button"
+          className="store-back-button"
+          onClick={() => navigate('/')}
+        >
+          ← متابعة التسوق
+        </button>
+      </header>
 
       <main className="store-content">
         <section className="cart-page-heading">
@@ -159,6 +244,10 @@ function CartPage() {
                 ? `لديك ${totalItems} قطعة في السلة.`
                 : 'سلتك فارغة حالياً.'}
             </p>
+
+            {isRefreshingStock ? (
+              <small>جارٍ تحديث المخزون...</small>
+            ) : null}
           </div>
 
           {items.length > 0 ? (
@@ -171,6 +260,12 @@ function CartPage() {
             </button>
           ) : null}
         </section>
+
+        {stockMessage ? (
+          <p className="cart-success-message" role="status">
+            {stockMessage}
+          </p>
+        ) : null}
 
         {items.length === 0 ? (
           <section className="empty-state">
@@ -185,7 +280,10 @@ function CartPage() {
             <section className="cart-items-list">
               {items.map((item) => (
                 <article className="cart-item-card" key={item.id}>
-                  <CartItemImage imagePath={item.imagePath} name={item.name} />
+                  <CartItemImage
+                    imagePath={item.imagePath}
+                    name={item.name}
+                  />
 
                   <div className="cart-item-info">
                     {item.slug ? (
@@ -198,41 +296,45 @@ function CartPage() {
                   </div>
 
                   <label className="cart-quantity-field">
-  <span>الكمية</span>
+                    <span>الكمية</span>
 
-  <input
-    type="number"
-    min="1"
-    max={getAvailableStock(item) ?? undefined}
-    step="1"
-    value={item.quantity}
-    onChange={(event) =>
-      handleQuantityChange(item, event.target.value)
-    }
-    aria-label={`كمية ${item.name}`}
-  />
+                    <input
+                      type="number"
+                      min="1"
+                      max={getAvailableStock(item) ?? undefined}
+                      step="1"
+                      value={item.quantity}
+                      disabled={isRefreshingStock}
+                      onChange={(event) =>
+                        handleQuantityChange(item, event.target.value)
+                      }
+                      aria-label={`كمية ${item.name}`}
+                    />
 
-  {getAvailableStock(item) !== null ? (
-    <small>
-      المتاح: {getAvailableStock(item)} قطعة
-    </small>
-  ) : null}
-</label>
+                    {getAvailableStock(item) !== null ? (
+                      <small>
+                        المتاح: {getAvailableStock(item)} قطعة
+                      </small>
+                    ) : null}
+                  </label>
 
                   <div className="cart-item-total">
-                    <strong>{formatPrice(item.price * item.quantity)}</strong>
+                    <strong>
+                      {formatPrice(item.price * item.quantity)}
+                    </strong>
+
                     <button
                       type="button"
                       className="cart-remove-button"
                       onClick={() => {
-  const confirmed = window.confirm(
-    `هل تريد حذف "${item.name}" من سلة المشتريات؟`,
-  )
+                        const confirmed = window.confirm(
+                          `هل تريد حذف "${item.name}" من سلة المشتريات؟`,
+                        )
 
- if (confirmed) {
-  removeItem(item.id)
-}
-}}
+                        if (confirmed) {
+                          removeItem(item.id)
+                        }
+                      }}
                     >
                       إزالة
                     </button>
@@ -258,18 +360,23 @@ function CartPage() {
                 type="button"
                 className="details-button cart-checkout-button"
                 onClick={() => navigate('/checkout')}
+                disabled={isRefreshingStock}
               >
-                إكمال الطلب
+                {isRefreshingStock
+                  ? 'جارٍ تحديث المخزون...'
+                  : 'إكمال الطلب'}
               </button>
 
-              <p>سيتم تأكيد الطلب وإرساله عبر WhatsApp في الخطوة التالية.</p>
+              <p>
+                سيتم تأكيد الطلب وإرساله عبر WhatsApp في الخطوة التالية.
+              </p>
             </aside>
           </div>
         )}
       </main>
 
       <footer className="store-footer">
-        جميع الحقوق محفوظة © {new Date().getFullYear()} دبوس اونلاين
+        جميع الحقوق محفوظة © {new Date().getFullYear()} دبوس اونلاين Abo Sabine
       </footer>
     </div>
   )

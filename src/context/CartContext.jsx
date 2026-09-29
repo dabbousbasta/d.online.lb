@@ -1,4 +1,11 @@
-import { createContext, useContext, useEffect, useMemo, useState } from 'react'
+import {
+  createContext,
+  useCallback,
+  useContext,
+  useEffect,
+  useMemo,
+  useState,
+} from 'react'
 
 const CartContext = createContext(null)
 const CART_STORAGE_KEY = 'dabous-online-store-cart'
@@ -58,7 +65,9 @@ function getInitialCart() {
           quantity: limitQuantityToStock(item.quantity, stockQuantity),
         }
       })
-      .filter((item) => item.stock_quantity === null || item.stock_quantity > 0)
+      .filter(
+        (item) => item.stock_quantity === null || item.stock_quantity > 0,
+      )
   } catch {
     return []
   }
@@ -71,7 +80,7 @@ export function CartProvider({ children }) {
     window.localStorage.setItem(CART_STORAGE_KEY, JSON.stringify(items))
   }, [items])
 
-  function addItem(product, quantityToAdd = 1) {
+  const addItem = useCallback((product, quantityToAdd = 1) => {
     if (!product?.id) {
       return
     }
@@ -121,9 +130,9 @@ export function CartProvider({ children }) {
         },
       ]
     })
-  }
+  }, [])
 
-  function updateQuantity(productId, nextQuantity) {
+  const updateQuantity = useCallback((productId, nextQuantity) => {
     setItems((currentItems) =>
       currentItems.map((item) => {
         if (item.id !== productId) {
@@ -138,17 +147,63 @@ export function CartProvider({ children }) {
         }
       }),
     )
-  }
+  }, [])
 
-  function removeItem(productId) {
+  const refreshStock = useCallback((stockItems) => {
+    if (!Array.isArray(stockItems)) {
+      return
+    }
+
+    const stockByProductId = new Map(
+      stockItems
+        .filter((item) => item?.id)
+        .map((item) => [
+          item.id,
+          {
+            stock_quantity: getAvailableStock(item),
+            stock_status: item.stock_status,
+          },
+        ]),
+    )
+
+    setItems((currentItems) =>
+      currentItems
+        .map((item) => {
+          const currentStock = stockByProductId.get(item.id)
+
+          if (!currentStock) {
+            return {
+              ...item,
+              stock_quantity: 0,
+              stock_status: 'out_of_stock',
+            }
+          }
+
+          return {
+            ...item,
+            stock_quantity: currentStock.stock_quantity,
+            stock_status: currentStock.stock_status,
+            quantity: limitQuantityToStock(
+              item.quantity,
+              currentStock.stock_quantity,
+            ),
+          }
+        })
+        .filter(
+          (item) => item.stock_quantity === null || item.stock_quantity > 0,
+        ),
+    )
+  }, [])
+
+  const removeItem = useCallback((productId) => {
     setItems((currentItems) =>
       currentItems.filter((item) => item.id !== productId),
     )
-  }
+  }, [])
 
-  function clearCart() {
+  const clearCart = useCallback(() => {
     setItems([])
-  }
+  }, [])
 
   const totalItems = useMemo(
     () =>
@@ -169,15 +224,28 @@ export function CartProvider({ children }) {
     [items],
   )
 
-  const value = {
-    items,
-    totalItems,
-    totalPrice,
-    addItem,
-    updateQuantity,
-    removeItem,
-    clearCart,
-  }
+  const value = useMemo(
+    () => ({
+      items,
+      totalItems,
+      totalPrice,
+      addItem,
+      updateQuantity,
+      refreshStock,
+      removeItem,
+      clearCart,
+    }),
+    [
+      items,
+      totalItems,
+      totalPrice,
+      addItem,
+      updateQuantity,
+      refreshStock,
+      removeItem,
+      clearCart,
+    ],
+  )
 
   return (
     <CartContext.Provider value={value}>
