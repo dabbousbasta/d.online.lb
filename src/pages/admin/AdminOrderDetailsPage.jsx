@@ -2,6 +2,16 @@ import { useEffect, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { supabase } from '../../lib/supabase'
 
+const ORDER_STATUS_OPTIONS = [
+  { value: 'new', label: 'جديد' },
+  { value: 'under_review', label: 'قيد المراجعة' },
+  { value: 'contacted_customer', label: 'تم التواصل مع العميل' },
+  { value: 'preparing', label: 'قيد التجهيز' },
+  { value: 'shipped', label: 'تم الشحن' },
+  { value: 'completed', label: 'مكتمل' },
+  { value: 'cancelled', label: 'ملغي' },
+]
+
 function formatPrice(price) {
   return new Intl.NumberFormat('en-US', {
     style: 'currency',
@@ -40,17 +50,11 @@ function cleanWhatsAppNumber(value) {
 }
 
 function getStatusLabel(status) {
-  const labels = {
-    new: 'جديد',
-    under_review: 'قيد المراجعة',
-    contacted_customer: 'تم التواصل مع العميل',
-    preparing: 'قيد التجهيز',
-    shipped: 'تم الشحن',
-    completed: 'مكتمل',
-    cancelled: 'ملغي',
-  }
-
-  return labels[status] ?? status ?? '—'
+  return (
+    ORDER_STATUS_OPTIONS.find((option) => option.value === status)?.label ??
+    status ??
+    '—'
+  )
 }
 
 function getStatusClass(status) {
@@ -67,16 +71,6 @@ function getStatusClass(status) {
   return classes[status] ?? 'new'
 }
 
-const orderStatusOptions = [
-  { value: 'new', label: 'جديد' },
-  { value: 'under_review', label: 'قيد المراجعة' },
-  { value: 'contacted_customer', label: 'تم التواصل مع العميل' },
-  { value: 'preparing', label: 'قيد التجهيز' },
-  { value: 'shipped', label: 'تم الشحن' },
-  { value: 'completed', label: 'مكتمل' },
-  { value: 'cancelled', label: 'ملغي' },
-]
-
 function AdminOrderDetailsPage() {
   const navigate = useNavigate()
   const { orderId } = useParams()
@@ -84,8 +78,10 @@ function AdminOrderDetailsPage() {
   const [order, setOrder] = useState(null)
   const [orderItems, setOrderItems] = useState([])
   const [selectedStatus, setSelectedStatus] = useState('')
+  const [adminNotes, setAdminNotes] = useState('')
   const [loading, setLoading] = useState(true)
   const [savingStatus, setSavingStatus] = useState(false)
+  const [savingNotes, setSavingNotes] = useState(false)
   const [contactingCustomer, setContactingCustomer] = useState(false)
   const [errorMessage, setErrorMessage] = useState('')
   const [successMessage, setSuccessMessage] = useState('')
@@ -117,6 +113,7 @@ function AdminOrderDetailsPage() {
             total,
             currency_code,
             created_at,
+            updated_at,
             whatsapp_opened_at
           `)
           .eq('id', orderId)
@@ -158,11 +155,17 @@ function AdminOrderDetailsPage() {
       setOrder(orderResult.data)
       setOrderItems(itemsResult.data ?? [])
       setSelectedStatus(orderResult.data.status)
+      setAdminNotes(orderResult.data.notes ?? '')
       setLoading(false)
     }
 
     loadOrderDetails()
   }, [orderId])
+
+  function clearMessages() {
+    setErrorMessage('')
+    setSuccessMessage('')
+  }
 
   async function handleSaveStatus() {
     if (!order || !selectedStatus || selectedStatus === order.status) {
@@ -170,14 +173,13 @@ function AdminOrderDetailsPage() {
     }
 
     setSavingStatus(true)
-    setErrorMessage('')
-    setSuccessMessage('')
+    clearMessages()
 
     const { data, error } = await supabase
       .from('store_orders')
       .update({ status: selectedStatus })
       .eq('id', order.id)
-      .select('status')
+      .select('status, updated_at')
       .maybeSingle()
 
     if (error) {
@@ -195,10 +197,52 @@ function AdminOrderDetailsPage() {
     setOrder((currentOrder) => ({
       ...currentOrder,
       status: data.status,
+      updated_at: data.updated_at,
     }))
+
     setSelectedStatus(data.status)
     setSuccessMessage('تم حفظ حالة الطلب بنجاح.')
     setSavingStatus(false)
+  }
+
+  async function handleSaveAdminNotes() {
+    if (!order) {
+      return
+    }
+
+    setSavingNotes(true)
+    clearMessages()
+
+    const notesValue = adminNotes.trim() || null
+
+    const { data, error } = await supabase
+      .from('store_orders')
+      .update({ notes: notesValue })
+      .eq('id', order.id)
+      .select('notes, updated_at')
+      .maybeSingle()
+
+    if (error) {
+      setErrorMessage(`تعذر حفظ الملاحظات الداخلية: ${error.message}`)
+      setSavingNotes(false)
+      return
+    }
+
+    if (!data) {
+      setErrorMessage('لم يتم العثور على الطلب أثناء محاولة حفظ الملاحظات.')
+      setSavingNotes(false)
+      return
+    }
+
+    setOrder((currentOrder) => ({
+      ...currentOrder,
+      notes: data.notes,
+      updated_at: data.updated_at,
+    }))
+
+    setAdminNotes(data.notes ?? '')
+    setSuccessMessage('تم حفظ الملاحظات الداخلية بنجاح.')
+    setSavingNotes(false)
   }
 
   async function handleContactCustomer() {
@@ -214,8 +258,7 @@ function AdminOrderDetailsPage() {
     }
 
     setContactingCustomer(true)
-    setErrorMessage('')
-    setSuccessMessage('')
+    clearMessages()
 
     const contactTime = new Date().toISOString()
 
@@ -226,7 +269,7 @@ function AdminOrderDetailsPage() {
         whatsapp_opened_at: contactTime,
       })
       .eq('id', order.id)
-      .select('status, whatsapp_opened_at')
+      .select('status, whatsapp_opened_at, updated_at')
       .maybeSingle()
 
     if (error) {
@@ -245,7 +288,9 @@ function AdminOrderDetailsPage() {
       ...currentOrder,
       status: data.status,
       whatsapp_opened_at: data.whatsapp_opened_at,
+      updated_at: data.updated_at,
     }))
+
     setSelectedStatus(data.status)
     setSuccessMessage('تم تسجيل التواصل مع العميل وفتح WhatsApp.')
 
@@ -267,7 +312,7 @@ function AdminOrderDetailsPage() {
   if (loading) {
     return (
       <main className="admin-page" dir="rtl">
-        <p className="admin-loading">⏳ جارٍ تحميل تفاصيل الطلب...</p>
+        <p className="admin-loading">جارٍ تحميل تفاصيل الطلب...</p>
       </main>
     )
   }
@@ -302,11 +347,13 @@ function AdminOrderDetailsPage() {
   const orderTotal = order.total_amount ?? order.total ?? 0
   const orderSubtotal = order.subtotal ?? orderTotal
   const customerAddress = order.customer_address || order.address || '—'
-  const customerNotes = order.customer_notes || order.notes || '—'
-  const totalItems = order.total_items ?? orderItems.reduce(
-    (sum, item) => sum + Number(item.quantity ?? 0),
-    0,
-  )
+  const customerNotes = order.customer_notes || '—'
+  const totalItems =
+    order.total_items ??
+    orderItems.reduce(
+      (sum, item) => sum + Number(item.quantity ?? 0),
+      0,
+    )
 
   return (
     <main className="admin-page" dir="rtl">
@@ -322,7 +369,12 @@ function AdminOrderDetailsPage() {
         <div>
           <p className="admin-kicker">إدارة الطلبات</p>
           <h1>تفاصيل الطلب #{order.order_number}</h1>
-          <p>تم إنشاء الطلب في: {formatDate(order.created_at)}</p>
+          <p>
+            تم إنشاء الطلب في: {formatDate(order.created_at)}
+            {order.updated_at
+              ? ` — آخر تحديث: ${formatDate(order.updated_at)}`
+              : ''}
+          </p>
         </div>
       </header>
 
@@ -338,7 +390,10 @@ function AdminOrderDetailsPage() {
         <article className="admin-list-card">
           <div className="admin-section-heading">
             <h2>بيانات العميل</h2>
-            <span className={`order-status-pill ${getStatusClass(order.status)}`}>
+
+            <span
+              className={`order-status-pill ${getStatusClass(order.status)}`}
+            >
               {getStatusLabel(order.status)}
             </span>
           </div>
@@ -438,7 +493,7 @@ function AdminOrderDetailsPage() {
             disabled={savingStatus || contactingCustomer}
             aria-label="حالة الطلب"
           >
-            {orderStatusOptions.map((option) => (
+            {ORDER_STATUS_OPTIONS.map((option) => (
               <option key={option.value} value={option.value}>
                 {option.label}
               </option>
@@ -449,10 +504,54 @@ function AdminOrderDetailsPage() {
             type="button"
             className="admin-primary-button"
             onClick={handleSaveStatus}
-            disabled={savingStatus || contactingCustomer || selectedStatus === order.status}
+            disabled={
+              savingStatus ||
+              contactingCustomer ||
+              selectedStatus === order.status
+            }
           >
             {savingStatus ? 'جارٍ الحفظ...' : 'حفظ حالة الطلب'}
           </button>
+        </div>
+      </section>
+
+      <section className="admin-list-card admin-notes-card">
+        <div className="admin-section-heading">
+          <div>
+            <h2>ملاحظات الإدارة الداخلية</h2>
+            <p className="order-status-helper">
+              هذه الملاحظة للفريق فقط ولا تظهر للعميل.
+            </p>
+          </div>
+        </div>
+
+        <textarea
+          className="admin-order-notes-input"
+          value={adminNotes}
+          onChange={(event) => {
+            setAdminNotes(event.target.value)
+            setSuccessMessage('')
+          }}
+          placeholder="مثال: تم تأكيد اللون مع العميل، التسليم صباح الثلاثاء."
+          rows="5"
+          disabled={savingNotes}
+        />
+
+        <div className="admin-notes-actions">
+          <button
+            type="button"
+            className="admin-primary-button"
+            onClick={handleSaveAdminNotes}
+            disabled={savingNotes}
+          >
+            {savingNotes ? 'جارٍ حفظ الملاحظات...' : 'حفظ الملاحظات'}
+          </button>
+
+          {adminNotes !== (order.notes ?? '') ? (
+            <span className="unsaved-notes-indicator">
+              توجد تعديلات غير محفوظة
+            </span>
+          ) : null}
         </div>
       </section>
 
@@ -481,6 +580,7 @@ function AdminOrderDetailsPage() {
                   <tr key={item.id}>
                     <td>
                       <strong>{item.product_name}</strong>
+
                       {item.product_slug ? (
                         <small dir="ltr">{item.product_slug}</small>
                       ) : null}

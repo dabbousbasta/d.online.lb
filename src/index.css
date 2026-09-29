@@ -3159,3 +3159,51 @@ button {
     flex-direction: column;
   }
 }
+.admin-notes-card {
+  margin-top: 20px;
+}
+
+.admin-order-notes-input {
+  width: 100%;
+  min-height: 126px;
+  resize: vertical;
+  border: 1px solid #cbd5e1;
+  border-radius: 10px;
+  padding: 12px;
+  background: #ffffff;
+  color: #162534;
+  font: inherit;
+  line-height: 1.7;
+  outline: none;
+}
+
+.admin-order-notes-input:focus {
+  border-color: #1c5d88;
+  box-shadow: 0 0 0 3px rgba(28, 93, 136, 0.14);
+}
+
+.admin-order-notes-input:disabled {
+  cursor: not-allowed;
+  background: #e2e8f0;
+  color: #64748b;
+}
+
+.admin-notes-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+  margin-top: 12px;
+}
+
+.unsaved-notes-indicator {
+  color: #b45309;
+  font-size: 0.84rem;
+  font-weight: 800;
+}
+
+@media (max-width: 620px) {
+  .admin-notes-actions .admin-primary-button {
+    width: 100%;
+  }
+}
