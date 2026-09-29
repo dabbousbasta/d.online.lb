@@ -29,6 +29,27 @@ function normalizeLebaneseWhatsAppNumber(value) {
   return `961${digits}`
 }
 
+function getFriendlyOrderError(error) {
+  const message = String(error?.message ?? '').toLowerCase()
+  const code = String(error?.code ?? '').toLowerCase()
+
+  const isStockError =
+    message.includes('stock') ||
+    message.includes('inventory') ||
+    message.includes('quantity') ||
+    message.includes('out of stock') ||
+    message.includes('insufficient') ||
+    message.includes('غير متوفر') ||
+    message.includes('المخزون') ||
+    code === 'p0001'
+
+  if (isStockError) {
+    return 'عذراً، تغيّر مخزون أحد المنتجات أثناء إتمام الطلب. لم يتم حفظ الطلب. عد إلى السلة وعدّل الكمية أو احذف المنتج ثم حاول مجدداً.'
+  }
+
+  return 'تعذر حفظ الطلب حالياً. لم يتم إرسال الطلب ولم يتم خصم أي مبلغ. حاول مرة أخرى بعد قليل.'
+}
+
 function CheckoutPage() {
   const navigate = useNavigate()
   const { items, totalItems, totalPrice, clearCart } = useCart()
@@ -55,15 +76,19 @@ function CheckoutPage() {
         .maybeSingle()
 
       if (error) {
-        setErrorMessage(`تعذر تحميل إعدادات الطلب: ${error.message}`)
+        setErrorMessage('تعذر تحميل إعدادات الطلب. حاول مرة أخرى لاحقاً.')
         setLoading(false)
         return
       }
 
-      const normalizedNumber = normalizeLebaneseWhatsAppNumber(data?.whatsapp_number)
+      const normalizedNumber = normalizeLebaneseWhatsAppNumber(
+        data?.whatsapp_number,
+      )
 
       if (!normalizedNumber) {
-        setErrorMessage('رقم WhatsApp للمتجر غير مُعدّ بعد. تواصل مع إدارة المتجر.')
+        setErrorMessage(
+          'رقم WhatsApp للمتجر غير مُعدّ بعد. تواصل مع إدارة المتجر.',
+        )
         setLoading(false)
         return
       }
@@ -121,6 +146,11 @@ function CheckoutPage() {
 
   async function handleSubmit(event) {
     event.preventDefault()
+
+    if (submitting) {
+      return
+    }
+
     setErrorMessage('')
 
     if (!form.customerName.trim()) {
@@ -145,6 +175,11 @@ function CheckoutPage() {
 
     if (!whatsappNumber) {
       setErrorMessage('رقم WhatsApp للمتجر غير متوفر حالياً.')
+      return
+    }
+
+    if (items.length === 0) {
+      setErrorMessage('السلة فارغة. عد إلى المتجر وأضف المنتجات أولاً.')
       return
     }
 
@@ -176,7 +211,7 @@ function CheckoutPage() {
     })
 
     if (error) {
-      setErrorMessage(`تعذر حفظ الطلب: ${error.message}`)
+      setErrorMessage(getFriendlyOrderError(error))
       setSubmitting(false)
       return
     }
@@ -184,7 +219,9 @@ function CheckoutPage() {
     const createdOrder = data?.[0]
 
     if (!createdOrder?.order_number) {
-      setErrorMessage('تمت محاولة حفظ الطلب لكن لم يتم استلام رقم الطلب. أعد المحاولة.')
+      setErrorMessage(
+        'تعذر تأكيد الطلب بشكل كامل. لم يتم فتح WhatsApp ولم يتم تفريغ السلة. حاول مرة أخرى.',
+      )
       setSubmitting(false)
       return
     }
@@ -227,39 +264,58 @@ function CheckoutPage() {
   return (
     <div className="store-app" dir="rtl">
       <header className="store-header">
-  <button
-    type="button"
-    className="brand brand-home-button"
-    onClick={() => navigate('/')}
-    aria-label="الذهاب إلى الصفحة الرئيسية"
-    title="الذهاب إلى الصفحة الرئيسية"
-  >
-    <div className="brand-mark">د</div>
+        <button
+          type="button"
+          className="brand brand-home-button"
+          onClick={() => navigate('/')}
+          aria-label="الذهاب إلى الصفحة الرئيسية"
+          title="الذهاب إلى الصفحة الرئيسية"
+        >
+          <div className="brand-mark">د</div>
 
-    <div className="brand-text">
-      <h1>دبوس اونلاين</h1>
-      <p>من الأساس حتى التشطيب</p>
-    </div>
-  </button>
+          <div className="brand-text">
+            <h1>دبوس اونلاين</h1>
+            <p>من الأساس حتى التشطيب</p>
+          </div>
+        </button>
 
-  <button
-    type="button"
-    className="store-back-button"
-    onClick={() => navigate('/cart')}
-  >
-    ← العودة إلى السلة
-  </button>
-</header>
+        <button
+          type="button"
+          className="store-back-button"
+          onClick={() => navigate('/cart')}
+          disabled={submitting}
+        >
+          ← العودة إلى السلة
+        </button>
+      </header>
 
       <main className="store-content">
         <div className="checkout-layout">
           <section className="checkout-form-card">
             <span className="eyebrow">إكمال الطلب</span>
             <h1>بيانات التواصل والتسليم</h1>
-            <p>اكتب رقم هاتفك اللبناني كما تستعمله محلياً، مثال: 03 947 353 أو 70 123 456.</p>
+            <p>
+              اكتب رقم هاتفك اللبناني كما تستعمله محلياً، مثال: 03 947
+              353 أو 70 123 456.
+            </p>
 
             {errorMessage ? (
-              <p className="checkout-error-message">{errorMessage}</p>
+              <div
+                className="checkout-error-message"
+                role="alert"
+                aria-live="assertive"
+              >
+                <p>{errorMessage}</p>
+
+                <button
+                  type="button"
+                  className="checkout-return-cart-button"
+                  onClick={() => navigate('/cart')}
+                  disabled={submitting}
+                >
+                  العودة إلى السلة وتعديل الكمية
+                </button>
+              </div>
             ) : null}
 
             <form onSubmit={handleSubmit}>
@@ -270,6 +326,7 @@ function CheckoutPage() {
                   value={form.customerName}
                   onChange={handleChange}
                   autoComplete="name"
+                  disabled={submitting}
                   required
                 />
               </label>
@@ -285,6 +342,7 @@ function CheckoutPage() {
                   inputMode="tel"
                   placeholder="مثال: 03 947 353"
                   dir="ltr"
+                  disabled={submitting}
                   required
                 />
               </label>
@@ -298,6 +356,7 @@ function CheckoutPage() {
                   onChange={handleChange}
                   autoComplete="email"
                   dir="ltr"
+                  disabled={submitting}
                   required
                 />
               </label>
@@ -310,6 +369,7 @@ function CheckoutPage() {
                   onChange={handleChange}
                   rows="4"
                   autoComplete="street-address"
+                  disabled={submitting}
                   required
                 />
               </label>
@@ -322,6 +382,7 @@ function CheckoutPage() {
                   onChange={handleChange}
                   rows="3"
                   placeholder="مثال: وقت مناسب للتواصل أو ملاحظة عن التسليم"
+                  disabled={submitting}
                 />
               </label>
 
@@ -330,7 +391,9 @@ function CheckoutPage() {
                 className="details-button checkout-submit-button"
                 disabled={submitting}
               >
-                {submitting ? 'جارٍ حفظ الطلب...' : 'تأكيد وإرسال الطلب عبر WhatsApp'}
+                {submitting
+                  ? 'جارٍ حفظ الطلب...'
+                  : 'تأكيد وإرسال الطلب عبر WhatsApp'}
               </button>
             </form>
           </section>
@@ -341,7 +404,9 @@ function CheckoutPage() {
             <div className="checkout-items-list">
               {items.map((item) => (
                 <div key={item.id}>
-                  <span>{item.name} × {item.quantity}</span>
+                  <span>
+                    {item.name} × {item.quantity}
+                  </span>
                   <strong>{formatPrice(item.price * item.quantity)}</strong>
                 </div>
               ))}
