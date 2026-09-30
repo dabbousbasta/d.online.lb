@@ -3223,3 +3223,30 @@ button {
 .clickable-order-row:focus-visible td {
   background: #eff6ff;
 }
+.sales-exclusion-card {
+  margin-top: 1.25rem;
+}
+
+.sales-exclusion-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.65rem;
+  padding: 0.75rem 1rem;
+  border: 1px solid #f0c36b;
+  border-radius: 0.75rem;
+  background: #fff9ec;
+  color: #805000;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.sales-exclusion-toggle input {
+  width: 1.1rem;
+  height: 1.1rem;
+  accent-color: #b26a00;
+  cursor: pointer;
+}
+
+.sales-exclusion-toggle input:disabled {
+  cursor: wait;
+}

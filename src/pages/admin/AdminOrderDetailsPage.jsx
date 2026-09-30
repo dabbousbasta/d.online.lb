@@ -82,6 +82,7 @@ function AdminOrderDetailsPage() {
   const [loading, setLoading] = useState(true)
   const [savingStatus, setSavingStatus] = useState(false)
   const [savingNotes, setSavingNotes] = useState(false)
+  const [savingSalesExclusion, setSavingSalesExclusion] = useState(false)
   const [contactingCustomer, setContactingCustomer] = useState(false)
   const [errorMessage, setErrorMessage] = useState('')
   const [successMessage, setSuccessMessage] = useState('')
@@ -113,8 +114,9 @@ function AdminOrderDetailsPage() {
             total,
             currency_code,
             created_at,
-            updated_at,
-            whatsapp_opened_at
+updated_at,
+whatsapp_opened_at,
+excluded_from_sales
           `)
           .eq('id', orderId)
           .maybeSingle(),
@@ -244,7 +246,53 @@ function AdminOrderDetailsPage() {
     setSuccessMessage('تم حفظ الملاحظات الداخلية بنجاح.')
     setSavingNotes(false)
   }
+async function handleSalesExclusionChange(event) {
+  if (!order) {
+    return
+  }
 
+  const excludedFromSales = event.target.checked
+
+  setSavingSalesExclusion(true)
+  clearMessages()
+
+  const { data, error } = await supabase
+    .from('store_orders')
+    .update({
+      excluded_from_sales: excludedFromSales,
+    })
+    .eq('id', order.id)
+    .select('excluded_from_sales, updated_at')
+    .maybeSingle()
+
+  if (error) {
+    setErrorMessage(
+      `تعذر تحديث استبعاد الطلب من المبيعات: ${error.message}`,
+    )
+    setSavingSalesExclusion(false)
+    return
+  }
+
+  if (!data) {
+    setErrorMessage('لم يتم العثور على الطلب أثناء محاولة تحديثه.')
+    setSavingSalesExclusion(false)
+    return
+  }
+
+  setOrder((currentOrder) => ({
+    ...currentOrder,
+    excluded_from_sales: data.excluded_from_sales,
+    updated_at: data.updated_at,
+  }))
+
+  setSuccessMessage(
+    data.excluded_from_sales
+      ? 'تم استبعاد هذا الطلب من حسابات المبيعات.'
+      : 'تمت إعادة هذا الطلب إلى حسابات المبيعات.',
+  )
+
+  setSavingSalesExclusion(false)
+}
   async function handleContactCustomer() {
     if (!order || contactingCustomer) {
       return
@@ -472,7 +520,32 @@ function AdminOrderDetailsPage() {
           <p>العملة: {order.currency_code || 'USD'}</p>
         </aside>
       </section>
+<section className="admin-list-card sales-exclusion-card">
+  <div className="admin-section-heading">
+    <div>
+      <h2>إعدادات المبيعات</h2>
+      <p className="order-status-helper">
+        الطلبات المستبعدة تبقى ظاهرة في الإدارة، لكنها لا تدخل في إجمالي
+        المبيعات أو عدد الطلبات.
+      </p>
+    </div>
+  </div>
 
+  <label className="sales-exclusion-toggle">
+    <input
+      type="checkbox"
+      checked={order.excluded_from_sales === true}
+      onChange={handleSalesExclusionChange}
+      disabled={savingSalesExclusion}
+    />
+
+    <span>
+      {savingSalesExclusion
+        ? 'جارٍ الحفظ...'
+        : 'استبعاد هذا الطلب من المبيعات'}
+    </span>
+  </label>
+</section>
       <section className="admin-list-card order-status-card">
         <div className="admin-section-heading">
           <div>
