@@ -15,6 +15,7 @@ import AdminProductsPage from './pages/admin/AdminProductsPage'
 import AdminProductEditPage from './pages/admin/AdminProductEditPage'
 import AdminOrdersPage from './pages/admin/AdminOrdersPage'
 import AdminOrderDetailsPage from './pages/admin/AdminOrderDetailsPage'
+import OrderSuccessPage from './pages/OrderSuccessPage'
 
 function StoreRoutes() {
   return (
@@ -24,6 +25,7 @@ function StoreRoutes() {
         <Route path="/product/:slug" element={<ProductDetailsPage />} />
         <Route path="/cart" element={<CartPage />} />
         <Route path="/checkout" element={<CheckoutPage />} />
+        <Route path="/order-success" element={<OrderSuccessPage />} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
 

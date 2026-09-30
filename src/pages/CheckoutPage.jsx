@@ -56,8 +56,9 @@ function CheckoutPage() {
 
   const [whatsappNumber, setWhatsappNumber] = useState('')
   const [loading, setLoading] = useState(true)
-  const [submitting, setSubmitting] = useState(false)
-  const [errorMessage, setErrorMessage] = useState('')
+const [submitting, setSubmitting] = useState(false)
+const [orderCompleted, setOrderCompleted] = useState(false)
+const [errorMessage, setErrorMessage] = useState('')
 
   const [form, setForm] = useState({
     customerName: '',
@@ -101,10 +102,10 @@ function CheckoutPage() {
   }, [])
 
   useEffect(() => {
-    if (!loading && items.length === 0) {
-      navigate('/cart', { replace: true })
-    }
-  }, [items.length, loading, navigate])
+  if (!loading && !orderCompleted && items.length === 0) {
+    navigate('/cart', { replace: true })
+  }
+}, [items.length, loading, navigate, orderCompleted])
 
   function handleChange(event) {
     const { name, value } = event.target
@@ -227,18 +228,35 @@ function CheckoutPage() {
     }
 
     const message = buildWhatsAppMessage(
-      createdOrder.order_number,
-      normalizedCustomerPhone,
-    )
+  createdOrder.order_number,
+  normalizedCustomerPhone,
+)
 
-    const whatsappUrl = `https://wa.me/${whatsappNumber}?text=${encodeURIComponent(message)}`
+const whatsappUrl = `https://wa.me/${whatsappNumber}?text=${encodeURIComponent(message)}`
 
-    window.open(whatsappUrl, '_blank', 'noopener,noreferrer')
+const orderSummary = {
+  orderNumber: createdOrder.order_number,
+  totalItems: createdOrder.total_items,
+  totalAmount: createdOrder.total_amount,
+}
 
-    clearCart()
-    setSubmitting(false)
+window.sessionStorage.setItem(
+  'dabous-online-store-last-order',
+  JSON.stringify(orderSummary),
+)
 
-    navigate('/', { replace: true })
+window.open(whatsappUrl, '_blank', 'noopener,noreferrer')
+
+setOrderCompleted(true)
+clearCart()
+setSubmitting(false)
+
+navigate('/order-success', {
+  replace: true,
+  state: {
+    order: orderSummary,
+  },
+})
   }
 
   if (loading) {
