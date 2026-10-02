@@ -3250,3 +3250,15 @@ button {
 .sales-exclusion-toggle input:disabled {
   cursor: wait;
 }
+.admin-product-header-content {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  width: 100%;
+}
+
+.admin-top-save-button {
+  flex: 0 0 auto;
+  white-space: nowrap;
+}

@@ -481,26 +481,44 @@ function AdminProductEditPage() {
 
   return (
     <main className="admin-page" dir="rtl">
-      <header className="admin-page-header">
-        <button
-          type="button"
-          className="text-back-button"
-          onClick={() => navigate('/admin/products')}
-        >
-          ← العودة إلى المنتجات
-        </button>
+      <header className="admin-page-header admin-product-edit-header">
+  <button
+    type="button"
+    className="text-back-button"
+    onClick={() => navigate('/admin/products')}
+  >
+    ← العودة إلى المنتجات
+  </button>
 
-        <p className="admin-kicker">إدارة المنتج</p>
-        <h1>{product.name}</h1>
-        <p>
-          السعر الأساسي في نظام التسعير: <strong>{formatPrice(product.base_price)}</strong>
-        </p>
-      </header>
+  <div className="admin-product-header-content">
+    <div>
+      <p className="admin-kicker">إدارة المنتج</p>
+      <h1>{product.name}</h1>
+      <p>
+        السعر الأساسي في نظام التسعير:{' '}
+        <strong>{formatPrice(product.base_price)}</strong>
+      </p>
+    </div>
+
+    <button
+      type="submit"
+      form="admin-product-edit-form"
+      className="admin-primary-button admin-top-save-button"
+      disabled={saving}
+    >
+      {saving ? 'جارٍ الحفظ...' : 'حفظ التعديلات'}
+    </button>
+  </div>
+</header>
 
       {message ? <p className="admin-alert success-alert">{message}</p> : null}
       {errorMessage ? <p className="admin-alert error-alert">{errorMessage}</p> : null}
 
-      <form className="admin-product-edit-form" onSubmit={handleSubmit}>
+      <form
+  id="admin-product-edit-form"
+  className="admin-product-edit-form"
+  onSubmit={handleSubmit}
+>
         <section className="admin-form-card">
           <div className="admin-section-heading">
             <h2>الظهور والتصنيف</h2>
