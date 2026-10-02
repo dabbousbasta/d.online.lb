@@ -3262,3 +3262,40 @@ button {
   flex: 0 0 auto;
   white-space: nowrap;
 }
+.admin-advanced-product-filters {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(150px, 1fr));
+  gap: 0.9rem;
+  margin-top: 1rem;
+}
+
+.admin-advanced-product-filters label {
+  display: grid;
+  gap: 0.4rem;
+  color: #4c4033;
+  font-size: 0.9rem;
+  font-weight: 700;
+}
+
+.admin-advanced-product-filters select {
+  width: 100%;
+  min-height: 2.7rem;
+  padding: 0.55rem 0.7rem;
+  border: 1px solid #d8c7ae;
+  border-radius: 0.65rem;
+  background: #fff;
+  color: #2c241c;
+  font: inherit;
+}
+
+@media (max-width: 900px) {
+  .admin-advanced-product-filters {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 560px) {
+  .admin-advanced-product-filters {
+    grid-template-columns: 1fr;
+  }
+}

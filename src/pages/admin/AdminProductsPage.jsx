@@ -20,6 +20,26 @@ const STOCK_OPTIONS = [
   { id: 'low_stock', label: 'كمية محدودة' },
   { id: 'out_of_stock', label: 'غير متوفر' },
 ]
+const PRICE_FILTER_OPTIONS = [
+  { id: 'all', label: 'كل حالات السعر' },
+  { id: 'priced', label: 'مسعّر' },
+  { id: 'unpriced', label: 'غير مسعّر' },
+  { id: 'store_price', label: 'له سعر متجر خاص' },
+  { id: 'base_price', label: 'يعتمد السعر الأساسي' },
+]
+
+const VISIBILITY_FILTER_OPTIONS = [
+  { id: 'all', label: 'كل حالات العرض' },
+  { id: 'published', label: 'معروض أونلاين' },
+  { id: 'hidden', label: 'غير معروض أونلاين' },
+]
+
+const STOCK_FILTER_OPTIONS = [
+  { id: 'all', label: 'كل حالات المخزون' },
+  { id: 'in_stock', label: 'متوفر' },
+  { id: 'low_stock', label: 'كمية محدودة' },
+  { id: 'out_of_stock', label: 'غير متوفر' },
+]
 
 function formatPrice(price) {
   if (price === null || price === undefined) {
@@ -63,26 +83,50 @@ async function getImageUrl(imagePath) {
 }
 
 function getSavedFilter() {
+  const defaultFilter = {
+    searchText: '',
+    filterMode: 'all',
+    categoryFilterId: '',
+    priceFilter: 'all',
+    visibilityFilter: 'all',
+    stockFilter: 'all',
+  }
+
   try {
     const savedValue = window.localStorage.getItem(FILTER_STORAGE_KEY)
 
     if (!savedValue) {
-      return { searchText: '', filterMode: 'all' }
+      return defaultFilter
     }
 
     const parsedValue = JSON.parse(savedValue)
-    const filterMode = FILTER_TABS.some(
-      (tab) => tab.id === parsedValue?.filterMode,
-    )
-      ? parsedValue.filterMode
-      : 'all'
 
     return {
       searchText: String(parsedValue?.searchText ?? ''),
-      filterMode,
+      filterMode: FILTER_TABS.some(
+        (tab) => tab.id === parsedValue?.filterMode,
+      )
+        ? parsedValue.filterMode
+        : 'all',
+      categoryFilterId: String(parsedValue?.categoryFilterId ?? ''),
+      priceFilter: PRICE_FILTER_OPTIONS.some(
+        (option) => option.id === parsedValue?.priceFilter,
+      )
+        ? parsedValue.priceFilter
+        : 'all',
+      visibilityFilter: VISIBILITY_FILTER_OPTIONS.some(
+        (option) => option.id === parsedValue?.visibilityFilter,
+      )
+        ? parsedValue.visibilityFilter
+        : 'all',
+      stockFilter: STOCK_FILTER_OPTIONS.some(
+        (option) => option.id === parsedValue?.stockFilter,
+      )
+        ? parsedValue.stockFilter
+        : 'all',
     }
   } catch {
-    return { searchText: '', filterMode: 'all' }
+    return defaultFilter
   }
 }
 
@@ -144,6 +188,14 @@ function AdminProductsPage() {
   const [searchInput, setSearchInput] = useState(initialFilter.searchText)
   const [searchText, setSearchText] = useState(initialFilter.searchText)
   const [filterMode, setFilterMode] = useState(initialFilter.filterMode)
+  const [categoryFilterId, setCategoryFilterId] = useState(
+  initialFilter.categoryFilterId,
+)
+const [priceFilter, setPriceFilter] = useState(initialFilter.priceFilter)
+const [visibilityFilter, setVisibilityFilter] = useState(
+  initialFilter.visibilityFilter,
+)
+const [stockFilter, setStockFilter] = useState(initialFilter.stockFilter)
   const [recentSearches, setRecentSearches] = useState(getRecentSearches)
   const [categories, setCategories] = useState([])
   const [products, setProducts] = useState([])
@@ -165,11 +217,15 @@ function AdminProductsPage() {
 
     const [productsResult, categoriesResult] = await Promise.all([
       supabase.rpc('get_store_admin_products', {
-        search_text: searchText.trim() || null,
-        filter_mode: filterMode,
-        page_limit: PAGE_SIZE,
-        page_offset: page * PAGE_SIZE,
-      }),
+  search_text: searchText.trim() || null,
+  filter_mode: filterMode,
+  category_filter_id: categoryFilterId || null,
+  price_filter: priceFilter,
+  visibility_filter: visibilityFilter,
+  stock_filter: stockFilter,
+  page_limit: PAGE_SIZE,
+  page_offset: page * PAGE_SIZE,
+}),
       supabase
         .from('store_categories')
         .select('id, name, is_active, sort_order')
@@ -213,7 +269,15 @@ function AdminProductsPage() {
     setRowMessages({})
     setTotalCount(Number(productsResult.data?.[0]?.total_count ?? 0))
     setLoading(false)
-  }, [filterMode, page, searchText])
+  }, [
+  categoryFilterId,
+  filterMode,
+  page,
+  priceFilter,
+  searchText,
+  stockFilter,
+  visibilityFilter,
+])
 
   useEffect(() => {
     loadProducts()
@@ -222,9 +286,23 @@ function AdminProductsPage() {
   useEffect(() => {
     window.localStorage.setItem(
       FILTER_STORAGE_KEY,
-      JSON.stringify({ searchText, filterMode }),
+      JSON.stringify({
+  searchText,
+  filterMode,
+  categoryFilterId,
+  priceFilter,
+  visibilityFilter,
+  stockFilter,
+}),
     )
-  }, [searchText, filterMode])
+  }, [
+  categoryFilterId,
+  filterMode,
+  priceFilter,
+  searchText,
+  stockFilter,
+  visibilityFilter,
+])
 
   function saveRecentSearch(nextSearchText, nextFilterMode) {
     const searchValue = nextSearchText.trim()
@@ -475,7 +553,13 @@ function AdminProductsPage() {
   const totalPages = Math.max(1, Math.ceil(totalCount / PAGE_SIZE))
   const canGoPrevious = page > 0
   const canGoNext = page + 1 < totalPages
-  const hasActiveFilter = Boolean(searchText.trim()) || filterMode !== 'all'
+ const hasActiveFilter =
+  Boolean(searchText.trim()) ||
+  filterMode !== 'all' ||
+  categoryFilterId !== '' ||
+  priceFilter !== 'all' ||
+  visibilityFilter !== 'all' ||
+  stockFilter !== 'all'
   const changedProductsCount = getChangedProducts().length
 
   return (
@@ -521,11 +605,15 @@ function AdminProductsPage() {
               type="button"
               className="secondary-button"
               onClick={() => {
-                setSearchInput('')
-                setSearchText('')
-                setFilterMode('all')
-                setPage(0)
-              }}
+  setSearchInput('')
+  setSearchText('')
+  setFilterMode('all')
+  setCategoryFilterId('')
+  setPriceFilter('all')
+  setVisibilityFilter('all')
+  setStockFilter('all')
+  setPage(0)
+}}
             >
               مسح الفلتر
             </button>
@@ -558,6 +646,77 @@ function AdminProductsPage() {
             </button>
           ))}
         </div>
+        <div className="admin-advanced-product-filters">
+  <label>
+    <span>تصنيف الصنف</span>
+    <select
+      value={categoryFilterId}
+      onChange={(event) => {
+        setCategoryFilterId(event.target.value)
+        setPage(0)
+      }}
+    >
+      <option value="">كل التصنيفات</option>
+            {categories.map((category) => (
+        <option key={category.id} value={category.id}>
+          {category.name}
+          {category.is_active ? '' : ' (مخفي)'}
+        </option>
+      ))}
+    </select>
+  </label>
+
+  <label>
+    <span>التسعير</span>
+    <select
+      value={priceFilter}
+      onChange={(event) => {
+        setPriceFilter(event.target.value)
+        setPage(0)
+      }}
+    >
+      {PRICE_FILTER_OPTIONS.map((option) => (
+        <option key={option.id} value={option.id}>
+          {option.label}
+        </option>
+      ))}
+    </select>
+  </label>
+
+  <label>
+    <span>العرض أونلاين</span>
+    <select
+      value={visibilityFilter}
+      onChange={(event) => {
+        setVisibilityFilter(event.target.value)
+        setPage(0)
+      }}
+    >
+      {VISIBILITY_FILTER_OPTIONS.map((option) => (
+        <option key={option.id} value={option.id}>
+          {option.label}
+        </option>
+      ))}
+    </select>
+  </label>
+
+  <label>
+    <span>حالة المخزون</span>
+    <select
+      value={stockFilter}
+      onChange={(event) => {
+        setStockFilter(event.target.value)
+        setPage(0)
+      }}
+    >
+      {STOCK_FILTER_OPTIONS.map((option) => (
+        <option key={option.id} value={option.id}>
+          {option.label}
+        </option>
+      ))}
+    </select>
+  </label>
+</div>
 
         {recentSearches.length > 0 ? (
           <div className="recent-admin-searches">
