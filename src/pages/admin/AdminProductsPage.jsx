@@ -20,6 +20,7 @@ const STOCK_OPTIONS = [
   { id: 'low_stock', label: 'كمية محدودة' },
   { id: 'out_of_stock', label: 'غير متوفر' },
 ]
+
 const PRICE_FILTER_OPTIONS = [
   { id: 'all', label: 'كل حالات السعر' },
   { id: 'priced', label: 'مسعّر' },
@@ -39,6 +40,25 @@ const STOCK_FILTER_OPTIONS = [
   { id: 'in_stock', label: 'متوفر' },
   { id: 'low_stock', label: 'كمية محدودة' },
   { id: 'out_of_stock', label: 'غير متوفر' },
+]
+
+const CATEGORY_FILTER_OPTIONS = [
+  { id: 'all', label: 'كل حالات التصنيف' },
+  { id: 'categorized', label: 'لديه تصنيف' },
+  { id: 'uncategorized', label: 'بدون تصنيف' },
+]
+
+const FEATURED_FILTER_OPTIONS = [
+  { id: 'all', label: 'كل حالات التمييز' },
+  { id: 'featured', label: 'منتج مميز' },
+  { id: 'not_featured', label: 'غير مميز' },
+]
+
+const QUANTITY_FILTER_OPTIONS = [
+  { id: 'all', label: 'كل الكميات' },
+  { id: 'zero', label: 'الكمية صفر' },
+  { id: 'low', label: 'من 1 إلى 5 قطع' },
+  { id: 'available', label: 'أكثر من 5 قطع' },
 ]
 
 function formatPrice(price) {
@@ -87,9 +107,12 @@ function getSavedFilter() {
     searchText: '',
     filterMode: 'all',
     categoryFilterId: '',
+    categoryFilter: 'all',
     priceFilter: 'all',
     visibilityFilter: 'all',
+    featuredFilter: 'all',
     stockFilter: 'all',
+    quantityFilter: 'all',
   }
 
   try {
@@ -109,6 +132,11 @@ function getSavedFilter() {
         ? parsedValue.filterMode
         : 'all',
       categoryFilterId: String(parsedValue?.categoryFilterId ?? ''),
+      categoryFilter: CATEGORY_FILTER_OPTIONS.some(
+        (option) => option.id === parsedValue?.categoryFilter,
+      )
+        ? parsedValue.categoryFilter
+        : 'all',
       priceFilter: PRICE_FILTER_OPTIONS.some(
         (option) => option.id === parsedValue?.priceFilter,
       )
@@ -119,10 +147,20 @@ function getSavedFilter() {
       )
         ? parsedValue.visibilityFilter
         : 'all',
+      featuredFilter: FEATURED_FILTER_OPTIONS.some(
+        (option) => option.id === parsedValue?.featuredFilter,
+      )
+        ? parsedValue.featuredFilter
+        : 'all',
       stockFilter: STOCK_FILTER_OPTIONS.some(
         (option) => option.id === parsedValue?.stockFilter,
       )
         ? parsedValue.stockFilter
+        : 'all',
+      quantityFilter: QUANTITY_FILTER_OPTIONS.some(
+        (option) => option.id === parsedValue?.quantityFilter,
+      )
+        ? parsedValue.quantityFilter
         : 'all',
     }
   } catch {
@@ -151,11 +189,17 @@ function getRecentSearches() {
 }
 
 function getFilterLabel(filterMode) {
-  return FILTER_TABS.find((tab) => tab.id === filterMode)?.label ?? 'كل الأصناف'
+  return (
+    FILTER_TABS.find((tab) => tab.id === filterMode)?.label ??
+    'كل الأصناف'
+  )
 }
 
 function getStockLabel(stockStatus) {
-  return STOCK_OPTIONS.find((option) => option.id === stockStatus)?.label ?? 'غير متوفر'
+  return (
+    STOCK_OPTIONS.find((option) => option.id === stockStatus)?.label ??
+    'غير متوفر'
+  )
 }
 
 function getInitialQuickEdit(product) {
@@ -189,13 +233,22 @@ function AdminProductsPage() {
   const [searchText, setSearchText] = useState(initialFilter.searchText)
   const [filterMode, setFilterMode] = useState(initialFilter.filterMode)
   const [categoryFilterId, setCategoryFilterId] = useState(
-  initialFilter.categoryFilterId,
-)
-const [priceFilter, setPriceFilter] = useState(initialFilter.priceFilter)
-const [visibilityFilter, setVisibilityFilter] = useState(
-  initialFilter.visibilityFilter,
-)
-const [stockFilter, setStockFilter] = useState(initialFilter.stockFilter)
+    initialFilter.categoryFilterId,
+  )
+  const [categoryFilter, setCategoryFilter] = useState(
+    initialFilter.categoryFilter,
+  )
+  const [priceFilter, setPriceFilter] = useState(initialFilter.priceFilter)
+  const [visibilityFilter, setVisibilityFilter] = useState(
+    initialFilter.visibilityFilter,
+  )
+  const [featuredFilter, setFeaturedFilter] = useState(
+    initialFilter.featuredFilter,
+  )
+  const [stockFilter, setStockFilter] = useState(initialFilter.stockFilter)
+  const [quantityFilter, setQuantityFilter] = useState(
+    initialFilter.quantityFilter,
+  )
   const [recentSearches, setRecentSearches] = useState(getRecentSearches)
   const [categories, setCategories] = useState([])
   const [products, setProducts] = useState([])
@@ -217,15 +270,18 @@ const [stockFilter, setStockFilter] = useState(initialFilter.stockFilter)
 
     const [productsResult, categoriesResult] = await Promise.all([
       supabase.rpc('get_store_admin_products', {
-  search_text: searchText.trim() || null,
-  filter_mode: filterMode,
-  category_filter_id: categoryFilterId || null,
-  price_filter: priceFilter,
-  visibility_filter: visibilityFilter,
-  stock_filter: stockFilter,
-  page_limit: PAGE_SIZE,
-  page_offset: page * PAGE_SIZE,
-}),
+        search_text: searchText.trim() || null,
+        filter_mode: filterMode,
+        category_filter_id: categoryFilterId || null,
+        category_filter: categoryFilter,
+        price_filter: priceFilter,
+        visibility_filter: visibilityFilter,
+        featured_filter: featuredFilter,
+        stock_filter: stockFilter,
+        quantity_filter: quantityFilter,
+        page_limit: PAGE_SIZE,
+        page_offset: page * PAGE_SIZE,
+      }),
       supabase
         .from('store_categories')
         .select('id, name, is_active, sort_order')
@@ -240,7 +296,9 @@ const [stockFilter, setStockFilter] = useState(initialFilter.stockFilter)
     }
 
     if (categoriesResult.error) {
-      setErrorMessage(`تعذر تحميل التصنيفات: ${categoriesResult.error.message}`)
+      setErrorMessage(
+        `تعذر تحميل التصنيفات: ${categoriesResult.error.message}`,
+      )
       setLoading(false)
       return
     }
@@ -270,14 +328,17 @@ const [stockFilter, setStockFilter] = useState(initialFilter.stockFilter)
     setTotalCount(Number(productsResult.data?.[0]?.total_count ?? 0))
     setLoading(false)
   }, [
-  categoryFilterId,
-  filterMode,
-  page,
-  priceFilter,
-  searchText,
-  stockFilter,
-  visibilityFilter,
-])
+    categoryFilter,
+    categoryFilterId,
+    featuredFilter,
+    filterMode,
+    page,
+    priceFilter,
+    quantityFilter,
+    searchText,
+    stockFilter,
+    visibilityFilter,
+  ])
 
   useEffect(() => {
     loadProducts()
@@ -287,22 +348,28 @@ const [stockFilter, setStockFilter] = useState(initialFilter.stockFilter)
     window.localStorage.setItem(
       FILTER_STORAGE_KEY,
       JSON.stringify({
-  searchText,
-  filterMode,
-  categoryFilterId,
-  priceFilter,
-  visibilityFilter,
-  stockFilter,
-}),
+        searchText,
+        filterMode,
+        categoryFilterId,
+        categoryFilter,
+        priceFilter,
+        visibilityFilter,
+        featuredFilter,
+        stockFilter,
+        quantityFilter,
+      }),
     )
   }, [
-  categoryFilterId,
-  filterMode,
-  priceFilter,
-  searchText,
-  stockFilter,
-  visibilityFilter,
-])
+    categoryFilter,
+    categoryFilterId,
+    featuredFilter,
+    filterMode,
+    priceFilter,
+    quantityFilter,
+    searchText,
+    stockFilter,
+    visibilityFilter,
+  ])
 
   function saveRecentSearch(nextSearchText, nextFilterMode) {
     const searchValue = nextSearchText.trim()
@@ -343,6 +410,20 @@ const [stockFilter, setStockFilter] = useState(initialFilter.stockFilter)
     setFilterMode(nextFilterMode)
     setPage(0)
     saveRecentSearch(nextSearchText, nextFilterMode)
+  }
+
+  function clearAllFilters() {
+    setSearchInput('')
+    setSearchText('')
+    setFilterMode('all')
+    setCategoryFilterId('')
+    setCategoryFilter('all')
+    setPriceFilter('all')
+    setVisibilityFilter('all')
+    setFeaturedFilter('all')
+    setStockFilter('all')
+    setQuantityFilter('all')
+    setPage(0)
   }
 
   function updateQuickEdit(itemId, field, value) {
@@ -553,13 +634,16 @@ const [stockFilter, setStockFilter] = useState(initialFilter.stockFilter)
   const totalPages = Math.max(1, Math.ceil(totalCount / PAGE_SIZE))
   const canGoPrevious = page > 0
   const canGoNext = page + 1 < totalPages
- const hasActiveFilter =
-  Boolean(searchText.trim()) ||
-  filterMode !== 'all' ||
-  categoryFilterId !== '' ||
-  priceFilter !== 'all' ||
-  visibilityFilter !== 'all' ||
-  stockFilter !== 'all'
+  const hasActiveFilter =
+    Boolean(searchText.trim()) ||
+    filterMode !== 'all' ||
+    categoryFilterId !== '' ||
+    categoryFilter !== 'all' ||
+    priceFilter !== 'all' ||
+    visibilityFilter !== 'all' ||
+    featuredFilter !== 'all' ||
+    stockFilter !== 'all' ||
+    quantityFilter !== 'all'
   const changedProductsCount = getChangedProducts().length
 
   return (
@@ -604,16 +688,7 @@ const [stockFilter, setStockFilter] = useState(initialFilter.stockFilter)
             <button
               type="button"
               className="secondary-button"
-              onClick={() => {
-  setSearchInput('')
-  setSearchText('')
-  setFilterMode('all')
-  setCategoryFilterId('')
-  setPriceFilter('all')
-  setVisibilityFilter('all')
-  setStockFilter('all')
-  setPage(0)
-}}
+              onClick={clearAllFilters}
             >
               مسح الفلتر
             </button>
@@ -621,7 +696,8 @@ const [stockFilter, setStockFilter] = useState(initialFilter.stockFilter)
         </form>
 
         <p className="search-helper-text">
-          مثال: كتابة <strong>دوش خلاط</strong> ستجد صنف <strong>خلاط دوش</strong>.
+          مثال: كتابة <strong>دوش خلاط</strong> ستجد صنف{' '}
+          <strong>خلاط دوش</strong>.
         </p>
 
         <div
@@ -646,77 +722,129 @@ const [stockFilter, setStockFilter] = useState(initialFilter.stockFilter)
             </button>
           ))}
         </div>
+
         <div className="admin-advanced-product-filters">
-  <label>
-    <span>تصنيف الصنف</span>
-    <select
-      value={categoryFilterId}
-      onChange={(event) => {
-        setCategoryFilterId(event.target.value)
-        setPage(0)
-      }}
-    >
-      <option value="">كل التصنيفات</option>
-            {categories.map((category) => (
-        <option key={category.id} value={category.id}>
-          {category.name}
-          {category.is_active ? '' : ' (مخفي)'}
-        </option>
-      ))}
-    </select>
-  </label>
+          <label>
+            <span>تصنيف الصنف</span>
+            <select
+              value={categoryFilterId}
+              onChange={(event) => {
+                setCategoryFilterId(event.target.value)
+                setPage(0)
+              }}
+            >
+              <option value="">كل التصنيفات</option>
+              {categories.map((category) => (
+                <option key={category.id} value={category.id}>
+                  {category.name}
+                  {category.is_active ? '' : ' (مخفي)'}
+                </option>
+              ))}
+            </select>
+          </label>
 
-  <label>
-    <span>التسعير</span>
-    <select
-      value={priceFilter}
-      onChange={(event) => {
-        setPriceFilter(event.target.value)
-        setPage(0)
-      }}
-    >
-      {PRICE_FILTER_OPTIONS.map((option) => (
-        <option key={option.id} value={option.id}>
-          {option.label}
-        </option>
-      ))}
-    </select>
-  </label>
+          <label>
+            <span>ترتيب التصنيف</span>
+            <select
+              value={categoryFilter}
+              onChange={(event) => {
+                setCategoryFilter(event.target.value)
+                setPage(0)
+              }}
+            >
+              {CATEGORY_FILTER_OPTIONS.map((option) => (
+                <option key={option.id} value={option.id}>
+                  {option.label}
+                </option>
+              ))}
+            </select>
+          </label>
 
-  <label>
-    <span>العرض أونلاين</span>
-    <select
-      value={visibilityFilter}
-      onChange={(event) => {
-        setVisibilityFilter(event.target.value)
-        setPage(0)
-      }}
-    >
-      {VISIBILITY_FILTER_OPTIONS.map((option) => (
-        <option key={option.id} value={option.id}>
-          {option.label}
-        </option>
-      ))}
-    </select>
-  </label>
+          <label>
+            <span>التسعير</span>
+            <select
+              value={priceFilter}
+              onChange={(event) => {
+                setPriceFilter(event.target.value)
+                setPage(0)
+              }}
+            >
+              {PRICE_FILTER_OPTIONS.map((option) => (
+                <option key={option.id} value={option.id}>
+                  {option.label}
+                </option>
+              ))}
+            </select>
+          </label>
 
-  <label>
-    <span>حالة المخزون</span>
-    <select
-      value={stockFilter}
-      onChange={(event) => {
-        setStockFilter(event.target.value)
-        setPage(0)
-      }}
-    >
-      {STOCK_FILTER_OPTIONS.map((option) => (
-        <option key={option.id} value={option.id}>
-          {option.label}
-        </option>
-      ))}
-    </select>
-  </label>
-</div>
+          <label>
+            <span>العرض أونلاين</span>
+            <select
+              value={visibilityFilter}
+              onChange={(event) => {
+                setVisibilityFilter(event.target.value)
+                setPage(0)
+              }}
+            >
+              {VISIBILITY_FILTER_OPTIONS.map((option) => (
+                <option key={option.id} value={option.id}>
+                  {option.label}
+                </option>
+              ))}
+            </select>
+          </label>
+
+          <label>
+            <span>تمييز المنتج</span>
+            <select
+              value={featuredFilter}
+              onChange={(event) => {
+                setFeaturedFilter(event.target.value)
+                setPage(0)
+              }}
+            >
+              {FEATURED_FILTER_OPTIONS.map((option) => (
+                <option key={option.id} value={option.id}>
+                  {option.label}
+                </option>
+              ))}
+            </select>
+          </label>
+
+          <label>
+            <span>حالة المخزون</span>
+            <select
+              value={stockFilter}
+              onChange={(event) => {
+                setStockFilter(event.target.value)
+                setPage(0)
+              }}
+            >
+              {STOCK_FILTER_OPTIONS.map((option) => (
+                <option key={option.id} value={option.id}>
+                  {option.label}
+                </option>
+              ))}
+            </select>
+          </label>
+
+          <label>
+            <span>كمية المخزون</span>
+            <select
+              value={quantityFilter}
+              onChange={(event) => {
+                setQuantityFilter(event.target.value)
+                setPage(0)
+              }}
+            >
+              {QUANTITY_FILTER_OPTIONS.map((option) => (
+                <option key={option.id} value={option.id}>
+                  {option.label}
+                </option>
+              ))}
+            </select>
+          </label>
+        </div>
 
         {recentSearches.length > 0 ? (
           <div className="recent-admin-searches">
@@ -830,22 +958,28 @@ const [stockFilter, setStockFilter] = useState(initialFilter.stockFilter)
                               : 'status-pill hidden'
                           }
                         >
-                          {product.is_published ? 'معروض أونلاين' : 'غير معروض'}
+                          {product.is_published
+                            ? 'معروض أونلاين'
+                            : 'غير معروض'}
                         </span>
                       </div>
 
                       <div className="admin-product-meta">
-                        <span>السعر الأساسي: {formatPrice(product.base_price)}</span>
+                        <span>
+                          السعر الأساسي: {formatPrice(product.base_price)}
+                        </span>
                         <span>
                           {product.online_price !== null
                             ? `سعر المتجر الحالي: ${formatPrice(product.online_price)}`
                             : 'سعر المتجر: السعر الأساسي'}
                         </span>
                         <span>
-                          التصنيف الحالي: {product.category_name || 'بدون تصنيف'}
+                          التصنيف الحالي:{' '}
+                          {product.category_name || 'بدون تصنيف'}
                         </span>
                         <span>
-                          المخزون الحالي: {getStockLabel(product.stock_status)}
+                          المخزون الحالي:{' '}
+                          {getStockLabel(product.stock_status)}
                         </span>
                         <span>الكمية الحالية: {product.stock_quantity}</span>
                       </div>
